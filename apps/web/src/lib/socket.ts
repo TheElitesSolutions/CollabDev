@@ -60,6 +60,75 @@ export type BoardColumnDeletedEvent = {
   columnId: string;
 };
 
+// File collaboration types
+export type FileCollaborator = {
+  id: string;
+  email: string;
+  firstName?: string;
+  lastName?: string;
+  image?: string | null;
+};
+
+export type FilePresenceUpdate = {
+  fileId: string;
+  projectId: string;
+  users: FileCollaborator[];
+  action: 'join' | 'leave';
+  user: {
+    id: string;
+    email: string;
+    name?: string;
+  };
+};
+
+export type FileEditChange = {
+  range: {
+    startLineNumber: number;
+    startColumn: number;
+    endLineNumber: number;
+    endColumn: number;
+  };
+  text: string;
+};
+
+export type FileEditEvent = {
+  fileId: string;
+  projectId: string;
+  userId: string;
+  userName: string;
+  changes: FileEditChange[];
+  version: number;
+  timestamp: Date;
+};
+
+export type FileCursorEvent = {
+  fileId: string;
+  projectId: string;
+  userId: string;
+  userName: string;
+  userColor?: string;
+  cursor: {
+    lineNumber: number;
+    column: number;
+  };
+  selection?: {
+    startLineNumber: number;
+    startColumn: number;
+    endLineNumber: number;
+    endColumn: number;
+  };
+};
+
+export type FileSavedEvent = {
+  fileId: string;
+  projectId: string;
+  savedBy: {
+    id: string;
+    email?: string;
+  };
+  timestamp: Date;
+};
+
 export function getSocket(): Socket | null {
   return socket;
 }
@@ -187,5 +256,73 @@ export function onColumnDeleted(callback: (data: BoardColumnDeletedEvent) => voi
   socket?.on('column:deleted', callback);
   return () => {
     socket?.off('column:deleted', callback);
+  };
+}
+
+// File collaboration functions
+export function joinFile(projectId: string, fileId: string): void {
+  if (socket?.connected) {
+    socket.emit('join_file', { projectId, fileId });
+  }
+}
+
+export function leaveFile(projectId: string, fileId: string): void {
+  if (socket?.connected) {
+    socket.emit('leave_file', { projectId, fileId });
+  }
+}
+
+export function sendFileEdit(
+  projectId: string,
+  fileId: string,
+  changes: FileEditChange[],
+  version: number
+): void {
+  if (socket?.connected) {
+    socket.emit('file:edit', { projectId, fileId, changes, version });
+  }
+}
+
+export function sendFileCursor(
+  projectId: string,
+  fileId: string,
+  cursor: { lineNumber: number; column: number },
+  selection?: {
+    startLineNumber: number;
+    startColumn: number;
+    endLineNumber: number;
+    endColumn: number;
+  }
+): void {
+  if (socket?.connected) {
+    socket.emit('file:cursor', { projectId, fileId, cursor, selection });
+  }
+}
+
+export function onFilePresence(callback: (data: FilePresenceUpdate) => void): () => void {
+  socket?.on('file:presence', callback);
+  return () => {
+    socket?.off('file:presence', callback);
+  };
+}
+
+export function onFileEdit(callback: (data: FileEditEvent) => void): () => void {
+  socket?.on('file:edit', callback);
+  return () => {
+    socket?.off('file:edit', callback);
+  };
+}
+
+export function onFileCursor(callback: (data: FileCursorEvent) => void): () => void {
+  socket?.on('file:cursor', callback);
+  return () => {
+    socket?.off('file:cursor', callback);
+  };
+}
+
+export function onFileSaved(callback: (data: FileSavedEvent) => void): () => void {
+  socket?.on('file:saved', callback);
+  return () => {
+    socket?.off('file:saved', callback);
   };
 }
