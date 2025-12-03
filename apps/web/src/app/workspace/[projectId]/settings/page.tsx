@@ -362,14 +362,16 @@ export default function ProjectSettingsPage() {
                       <div className="flex items-center gap-3">
                         <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
                           <span className="text-sm font-medium">
-                            {member.user?.name?.[0]?.toUpperCase() ||
+                            {member.user?.firstName?.[0]?.toUpperCase() ||
                               member.user?.email?.[0]?.toUpperCase() ||
                               '?'}
                           </span>
                         </div>
                         <div>
                           <p className="text-sm font-medium">
-                            {member.user?.name || member.user?.email || 'Unknown'}
+                            {member.user?.firstName && member.user?.lastName
+                              ? `${member.user.firstName} ${member.user.lastName}`
+                              : member.user?.firstName || member.user?.email || 'Unknown'}
                           </p>
                           <p className="text-xs text-muted-foreground">
                             {member.user?.email}

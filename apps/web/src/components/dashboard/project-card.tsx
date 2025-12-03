@@ -98,7 +98,7 @@ export function ProjectCard({ project, onDelete }: ProjectCardProps) {
                   <Avatar key={member.id} className="h-7 w-7 border-2 border-background">
                     <AvatarImage src={undefined} />
                     <AvatarFallback className="text-xs">
-                      {member.user?.name?.[0]?.toUpperCase() || 'U'}
+                      {member.user?.firstName?.[0]?.toUpperCase() || member.user?.email?.[0]?.toUpperCase() || 'U'}
                     </AvatarFallback>
                   </Avatar>
                 ))}
