@@ -1003,10 +1003,13 @@ export default function WorkspacePage() {
                     {selectedFile ? (
                       <CodeEditor
                         filename={selectedFile.name}
+                        fileId={selectedFile.id}
+                        projectId={projectId}
                         value={fileContent}
                         onChange={handleContentChange}
                         onSave={handleSave}
                         className="h-full"
+                        collaborative={true}
                       />
                     ) : (
                       <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
