@@ -664,9 +664,11 @@ export default function WorkspacePage() {
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                  <DropdownMenuItem>
-                    <Settings className="mr-2 h-4 w-4" />
-                    Project Settings
+                  <DropdownMenuItem asChild>
+                    <Link href={`/workspace/${projectId}/settings`}>
+                      <Settings className="mr-2 h-4 w-4" />
+                      Project Settings
+                    </Link>
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={fetchFiles}>
                     <RefreshCw className="mr-2 h-4 w-4" />
