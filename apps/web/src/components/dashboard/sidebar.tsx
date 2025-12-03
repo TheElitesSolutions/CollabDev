@@ -10,6 +10,7 @@ import {
   Plus,
   ChevronLeft,
   Menu,
+  BookOpen,
 } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
@@ -42,6 +43,11 @@ const navItems = [
     title: 'Projects',
     href: '/dashboard/projects',
     icon: FolderKanban,
+  },
+  {
+    title: 'Documentation',
+    href: '/dashboard/docs',
+    icon: BookOpen,
   },
   {
     title: 'Settings',
