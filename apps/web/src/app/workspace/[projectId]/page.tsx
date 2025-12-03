@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -18,6 +18,8 @@ import {
   Play,
   RefreshCw,
   MoreVertical,
+  Send,
+  Circle,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -25,6 +27,7 @@ import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Input } from '@/components/ui/input';
 import {
   Tooltip,
   TooltipContent,
@@ -40,6 +43,7 @@ import {
 import { AuthGuard } from '@/components/auth/auth-guard';
 import { useAuthStore } from '@/store/auth.store';
 import { useProjectStore, type Project } from '@/store/project.store';
+import { useSocketStore } from '@/store/socket.store';
 import { apiClient } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 
@@ -108,11 +112,22 @@ export default function WorkspacePage() {
 
   const { user } = useAuthStore();
   const { currentProject, setCurrentProject } = useProjectStore();
+  const {
+    isConnected,
+    presentUsers,
+    messages,
+    connect,
+    joinWorkspace,
+    leaveWorkspace,
+    sendMessage,
+  } = useSocketStore();
 
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [activeTab, setActiveTab] = useState<'files' | 'chat' | 'users'>('files');
+  const [chatInput, setChatInput] = useState('');
+  const chatContainerRef = useRef<HTMLDivElement>(null);
 
   // Fetch project details
   useEffect(() => {
@@ -138,6 +153,39 @@ export default function WorkspacePage() {
       setCurrentProject(null);
     };
   }, [projectId, setCurrentProject]);
+
+  // Connect to WebSocket and join workspace
+  useEffect(() => {
+    if (currentProject && projectId) {
+      connect();
+      joinWorkspace(projectId);
+    }
+
+    return () => {
+      leaveWorkspace();
+    };
+  }, [currentProject, projectId, connect, joinWorkspace, leaveWorkspace]);
+
+  // Auto-scroll chat to bottom
+  useEffect(() => {
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+    }
+  }, [messages]);
+
+  const handleSendMessage = () => {
+    if (chatInput.trim()) {
+      sendMessage(chatInput);
+      setChatInput('');
+    }
+  };
+
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSendMessage();
+    }
+  };
 
   if (isLoading) {
     return (
@@ -202,13 +250,60 @@ export default function WorkspacePage() {
             </div>
 
             <div className="flex items-center gap-2">
+              {/* Connection Status */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                    <Circle
+                      className={cn(
+                        'h-2 w-2 fill-current',
+                        isConnected ? 'text-green-500' : 'text-red-500'
+                      )}
+                    />
+                    <span>{isConnected ? 'Connected' : 'Disconnected'}</span>
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {isConnected
+                    ? `${presentUsers.length} user(s) online`
+                    : 'Connecting to workspace...'}
+                </TooltipContent>
+              </Tooltip>
+
+              <Separator orientation="vertical" className="h-6" />
+
               {/* Online Users */}
               <div className="flex -space-x-2 mr-2">
-                <Avatar className="h-7 w-7 border-2 border-background">
-                  <AvatarFallback className="text-xs">
-                    {user?.name?.[0]?.toUpperCase() || 'U'}
-                  </AvatarFallback>
-                </Avatar>
+                {presentUsers.length > 0 ? (
+                  presentUsers.slice(0, 5).map((pUser) => (
+                    <Tooltip key={pUser.id}>
+                      <TooltipTrigger asChild>
+                        <Avatar className="h-7 w-7 border-2 border-background">
+                          <AvatarImage src={pUser.image || undefined} />
+                          <AvatarFallback className="text-xs">
+                            {pUser.firstName?.[0]?.toUpperCase() ||
+                              pUser.email?.[0]?.toUpperCase() ||
+                              'U'}
+                          </AvatarFallback>
+                        </Avatar>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {pUser.firstName || pUser.email}
+                      </TooltipContent>
+                    </Tooltip>
+                  ))
+                ) : (
+                  <Avatar className="h-7 w-7 border-2 border-background">
+                    <AvatarFallback className="text-xs">
+                      {user?.name?.[0]?.toUpperCase() || 'U'}
+                    </AvatarFallback>
+                  </Avatar>
+                )}
+                {presentUsers.length > 5 && (
+                  <div className="flex h-7 w-7 items-center justify-center rounded-full border-2 border-background bg-muted text-xs font-medium">
+                    +{presentUsers.length - 5}
+                  </div>
+                )}
               </div>
 
               <Separator orientation="vertical" className="h-6" />
@@ -332,12 +427,57 @@ export default function WorkspacePage() {
                       <h3 className="px-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
                         Team Chat
                       </h3>
-                      <div className="flex-1 flex items-center justify-center text-center p-4">
-                        <div>
-                          <MessageSquare className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
-                          <p className="text-sm text-muted-foreground">
-                            Chat feature coming soon
-                          </p>
+                      {/* Chat Messages */}
+                      <div
+                        ref={chatContainerRef}
+                        className="flex-1 overflow-auto space-y-2 px-2"
+                      >
+                        {messages.length === 0 ? (
+                          <div className="flex-1 flex items-center justify-center text-center p-4">
+                            <div>
+                              <MessageSquare className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
+                              <p className="text-sm text-muted-foreground">
+                                No messages yet. Start the conversation!
+                              </p>
+                            </div>
+                          </div>
+                        ) : (
+                          messages.map((msg) => (
+                            <div
+                              key={msg.id}
+                              className={cn(
+                                'p-2 rounded-lg text-sm',
+                                msg.userId === user?.id
+                                  ? 'bg-primary text-primary-foreground ml-4'
+                                  : 'bg-muted mr-4'
+                              )}
+                            >
+                              <div className="font-medium text-xs opacity-70 mb-1">
+                                {msg.userName}
+                              </div>
+                              <div>{msg.content}</div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                      {/* Chat Input */}
+                      <div className="p-2 border-t">
+                        <div className="flex gap-2">
+                          <Input
+                            placeholder="Type a message..."
+                            value={chatInput}
+                            onChange={(e) => setChatInput(e.target.value)}
+                            onKeyDown={handleKeyPress}
+                            className="text-sm"
+                            disabled={!isConnected}
+                          />
+                          <Button
+                            size="icon"
+                            onClick={handleSendMessage}
+                            disabled={!isConnected || !chatInput.trim()}
+                          >
+                            <Send className="h-4 w-4" />
+                          </Button>
                         </div>
                       </div>
                     </div>
@@ -346,26 +486,68 @@ export default function WorkspacePage() {
                   {activeTab === 'users' && (
                     <div>
                       <h3 className="px-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-                        Team Members
+                        Online Now ({presentUsers.length})
                       </h3>
-                      <div className="space-y-2">
-                        {currentProject.members?.map((member) => (
+                      <div className="space-y-2 mb-4">
+                        {presentUsers.map((pUser) => (
                           <div
-                            key={member.id}
+                            key={pUser.id}
                             className="flex items-center gap-2 px-2 py-1 rounded hover:bg-accent"
                           >
                             <Avatar className="h-7 w-7">
+                              <AvatarImage src={pUser.image || undefined} />
                               <AvatarFallback className="text-xs">
-                                {member.user?.name?.[0]?.toUpperCase() || 'U'}
+                                {pUser.firstName?.[0]?.toUpperCase() ||
+                                  pUser.email?.[0]?.toUpperCase() ||
+                                  'U'}
                               </AvatarFallback>
                             </Avatar>
                             <div className="flex-1 min-w-0">
-                              <p className="text-sm truncate">{member.user?.name}</p>
-                              <p className="text-xs text-muted-foreground">{member.role}</p>
+                              <p className="text-sm truncate">
+                                {pUser.firstName
+                                  ? `${pUser.firstName} ${pUser.lastName || ''}`
+                                  : pUser.email}
+                              </p>
+                              <p className="text-xs text-muted-foreground">Online</p>
                             </div>
-                            <div className="h-2 w-2 rounded-full bg-green-500" />
+                            <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
                           </div>
                         ))}
+                        {presentUsers.length === 0 && (
+                          <p className="text-xs text-muted-foreground px-2">
+                            {isConnected ? 'No other users online' : 'Connecting...'}
+                          </p>
+                        )}
+                      </div>
+                      <h3 className="px-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                        Team Members
+                      </h3>
+                      <div className="space-y-2">
+                        {currentProject.members?.map((member) => {
+                          const isOnline = presentUsers.some((p) => p.id === member.userId);
+                          return (
+                            <div
+                              key={member.id}
+                              className="flex items-center gap-2 px-2 py-1 rounded hover:bg-accent"
+                            >
+                              <Avatar className="h-7 w-7">
+                                <AvatarFallback className="text-xs">
+                                  {member.user?.name?.[0]?.toUpperCase() || 'U'}
+                                </AvatarFallback>
+                              </Avatar>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm truncate">{member.user?.name}</p>
+                                <p className="text-xs text-muted-foreground">{member.role}</p>
+                              </div>
+                              <div
+                                className={cn(
+                                  'h-2 w-2 rounded-full',
+                                  isOnline ? 'bg-green-500' : 'bg-gray-400'
+                                )}
+                              />
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   )}

@@ -4,7 +4,8 @@
       "Bash(powershell -Command \"Stop-Process -Id 27320 -Force\")",
       "Bash(powershell -Command:*)",
       "Bash(powershell \"Stop-Process -Name chrome -Force -ErrorAction SilentlyContinue\")",
-      "Bash(git init:*)"
+      "Bash(git init:*)",
+      "Bash(git checkout:*)"
     ],
     "deny": [],
     "ask": [],
