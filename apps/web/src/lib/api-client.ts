@@ -177,6 +177,19 @@ export const apiClient = {
       });
     },
 
+    async inviteMember(
+      projectId: string,
+      data: {
+        email: string;
+        role: 'OWNER' | 'MAINTAINER' | 'MEMBER';
+      }
+    ): Promise<ProjectMember> {
+      return request(`/api/project/${projectId}/invite`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+      });
+    },
+
     async removeMember(projectId: string, userId: string): Promise<void> {
       return request(`/api/project/${projectId}/members/${userId}`, {
         method: 'DELETE',

@@ -11,6 +11,7 @@ import {
   Users,
   AlertTriangle,
   Loader2,
+  UserPlus,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -40,6 +41,13 @@ import {
   AlertDescription,
   AlertTitle,
 } from '@/components/ui/alert';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import { apiClient, ApiError } from '@/lib/api-client';
 import { useProjectStore, Project, ProjectMember } from '@/store/project.store';
@@ -66,6 +74,11 @@ export default function ProjectSettingsPage() {
   // Form state
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+
+  // Invite state
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteRole, setInviteRole] = useState<'MAINTAINER' | 'MEMBER'>('MEMBER');
+  const [isInviting, setIsInviting] = useState(false);
 
   // Fetch project data
   useEffect(() => {
@@ -99,6 +112,48 @@ export default function ProjectSettingsPage() {
   const isOwner = members.some(
     (m) => m.userId === user?.id && m.role === 'OWNER'
   );
+
+  // Check if current user can invite (OWNER or MAINTAINER)
+  const canInvite = members.some(
+    (m) => m.userId === user?.id && (m.role === 'OWNER' || m.role === 'MAINTAINER')
+  );
+
+  const handleInvite = async () => {
+    if (!inviteEmail.trim()) {
+      toast({
+        title: 'Error',
+        description: 'Email address is required.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    try {
+      setIsInviting(true);
+      const newMember = await apiClient.projects.inviteMember(projectId, {
+        email: inviteEmail.trim().toLowerCase(),
+        role: inviteRole,
+      });
+
+      setMembers([...members, newMember]);
+      setInviteEmail('');
+      setInviteRole('MEMBER');
+
+      toast({
+        title: 'Invited',
+        description: `Successfully invited ${newMember.user?.email || inviteEmail} to the project.`,
+      });
+    } catch (err) {
+      const apiError = err as ApiError;
+      toast({
+        title: 'Error',
+        description: apiError.message || 'Failed to invite member.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsInviting(false);
+    }
+  };
 
   const handleSave = async () => {
     if (!name.trim()) {
@@ -327,6 +382,51 @@ export default function ProjectSettingsPage() {
                     </div>
                   ))}
                 </div>
+
+                {/* Invite Member Form */}
+                {canInvite && (
+                  <>
+                    <Separator className="my-4" />
+                    <div className="space-y-4">
+                      <Label>Invite a team member</Label>
+                      <div className="flex gap-2">
+                        <Input
+                          type="email"
+                          placeholder="colleague@example.com"
+                          value={inviteEmail}
+                          onChange={(e) => setInviteEmail(e.target.value)}
+                          disabled={isInviting}
+                          className="flex-1"
+                        />
+                        <Select
+                          value={inviteRole}
+                          onValueChange={(value) =>
+                            setInviteRole(value as 'MAINTAINER' | 'MEMBER')
+                          }
+                          disabled={isInviting}
+                        >
+                          <SelectTrigger className="w-[140px]">
+                            <SelectValue placeholder="Role" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="MEMBER">Member</SelectItem>
+                            <SelectItem value="MAINTAINER">Maintainer</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <Button onClick={handleInvite} disabled={isInviting}>
+                          {isInviting ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <UserPlus className="h-4 w-4" />
+                          )}
+                        </Button>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Enter the email address of a registered user to invite them to this project.
+                      </p>
+                    </div>
+                  </>
+                )}
               </CardContent>
             </Card>
 
