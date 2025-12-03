@@ -2,6 +2,21 @@ import { appConfig } from '@/config/app';
 import { User } from '@/store/auth.store';
 import { Project, ProjectMember } from '@/store/project.store';
 
+export interface ProjectFile {
+  id: string;
+  createdAt: string;
+  updatedAt: string;
+  path: string;
+  name: string;
+  isFolder: boolean;
+  content: string | null;
+  mimeType: string | null;
+  parentId: string | null;
+  projectId: string;
+  lastEditedByUserId: string | null;
+  children?: ProjectFile[];
+}
+
 const API_URL = appConfig.apiUrl;
 
 export class ApiError extends Error {
@@ -165,6 +180,67 @@ export const apiClient = {
     async removeMember(projectId: string, userId: string): Promise<void> {
       return request(`/api/project/${projectId}/members/${userId}`, {
         method: 'DELETE',
+        body: JSON.stringify({}),
+      });
+    },
+  },
+
+  // Project Files APIs
+  files: {
+    async getAll(projectId: string): Promise<ProjectFile[]> {
+      return request(`/api/project/${projectId}/files`, {
+        method: 'GET',
+      });
+    },
+
+    async getById(projectId: string, fileId: string): Promise<ProjectFile> {
+      return request(`/api/project/${projectId}/files/${fileId}`, {
+        method: 'GET',
+      });
+    },
+
+    async create(
+      projectId: string,
+      data: {
+        path: string;
+        name: string;
+        isFolder?: boolean;
+        content?: string;
+        mimeType?: string;
+        parentId?: string;
+      }
+    ): Promise<ProjectFile> {
+      return request(`/api/project/${projectId}/files`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+      });
+    },
+
+    async update(
+      projectId: string,
+      fileId: string,
+      data: {
+        name?: string;
+        content?: string;
+        path?: string;
+      }
+    ): Promise<ProjectFile> {
+      return request(`/api/project/${projectId}/files/${fileId}`, {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+      });
+    },
+
+    async delete(projectId: string, fileId: string): Promise<void> {
+      return request(`/api/project/${projectId}/files/${fileId}`, {
+        method: 'DELETE',
+        body: JSON.stringify({}),
+      });
+    },
+
+    async initialize(projectId: string): Promise<ProjectFile[]> {
+      return request(`/api/project/${projectId}/files/initialize`, {
+        method: 'POST',
         body: JSON.stringify({}),
       });
     },
