@@ -57,6 +57,7 @@ import {
 } from '@/components/ui/dialog';
 import { AuthGuard } from '@/components/auth/auth-guard';
 import { KanbanBoard } from '@/components/kanban';
+import { CodeEditor } from '@/components/editor';
 import { useAuthStore } from '@/store/auth.store';
 import { useProjectStore } from '@/store/project.store';
 import { useSocketStore } from '@/store/socket.store';
@@ -307,11 +308,11 @@ export default function WorkspacePage() {
     setHasUnsavedChanges(false);
   };
 
-  // Handle content change
-  const handleContentChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setFileContent(e.target.value);
+  // Handle content change (for Monaco Editor)
+  const handleContentChange = useCallback((value: string) => {
+    setFileContent(value);
     setHasUnsavedChanges(true);
-  };
+  }, []);
 
   // Save file
   const handleSave = useCallback(async () => {
@@ -998,14 +999,14 @@ export default function WorkspacePage() {
                   </div>
 
                   {/* Editor Content */}
-                  <div className="flex-1 overflow-auto bg-[#1e1e1e]">
+                  <div className="flex-1 overflow-hidden bg-[#1e1e1e]">
                     {selectedFile ? (
-                      <textarea
+                      <CodeEditor
+                        filename={selectedFile.name}
                         value={fileContent}
                         onChange={handleContentChange}
-                        className="w-full h-full bg-transparent text-gray-300 font-mono text-sm p-4 resize-none focus:outline-none"
-                        placeholder="Start typing..."
-                        spellCheck={false}
+                        onSave={handleSave}
+                        className="h-full"
                       />
                     ) : (
                       <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
