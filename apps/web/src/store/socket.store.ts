@@ -16,6 +16,7 @@ import {
 
 type SocketState = {
   isConnected: boolean;
+  listenersInitialized: boolean;
   currentProjectId: string | null;
   presentUsers: PresenceUser[];
   cursors: Map<string, CursorPosition>;
@@ -55,12 +56,18 @@ export const useSocketStore = create<SocketState>()(
   devtools(
     (set, get) => ({
       isConnected: false,
+      listenersInitialized: false,
       currentProjectId: null,
       presentUsers: [],
       cursors: new Map(),
       messages: [],
 
       connect: () => {
+        // Prevent duplicate listeners
+        if (get().listenersInitialized) {
+          return;
+        }
+
         const socket = connectSocket();
 
         socket.on('connect', () => {
@@ -90,6 +97,9 @@ export const useSocketStore = create<SocketState>()(
         onChatMessage((data) => {
           set({ messages: [...get().messages, data] });
         });
+
+        // Mark listeners as initialized
+        set({ listenersInitialized: true });
       },
 
       disconnect: () => {
@@ -100,6 +110,7 @@ export const useSocketStore = create<SocketState>()(
         disconnectSocket();
         set({
           isConnected: false,
+          listenersInitialized: false,
           currentProjectId: null,
           presentUsers: [],
           cursors: new Map(),
@@ -114,14 +125,23 @@ export const useSocketStore = create<SocketState>()(
           leaveProject(currentProjectId);
         }
 
+        // Set project ID first to track what we're joining
+        set({ currentProjectId: projectId, messages: [] });
+
         // Connect if not connected
         if (!isConnected) {
+          const socket = connectSocket();
+          // Wait for connection before joining project
+          socket.once('connect', () => {
+            set({ isConnected: true });
+            joinProject(projectId);
+          });
+          // Set up listeners for this connection
           get().connect();
+        } else {
+          // Already connected, join immediately
+          joinProject(projectId);
         }
-
-        // Join the new project
-        joinProject(projectId);
-        set({ currentProjectId: projectId, messages: [] });
       },
 
       leaveWorkspace: () => {

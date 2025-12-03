@@ -26,6 +26,7 @@ import {
   Trash2,
   Loader2,
   X,
+  LayoutGrid,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -55,6 +56,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { AuthGuard } from '@/components/auth/auth-guard';
+import { KanbanBoard } from '@/components/kanban';
 import { useAuthStore } from '@/store/auth.store';
 import { useProjectStore } from '@/store/project.store';
 import { useSocketStore } from '@/store/socket.store';
@@ -190,7 +192,7 @@ export default function WorkspacePage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  const [activeTab, setActiveTab] = useState<'files' | 'chat' | 'users'>('files');
+  const [activeTab, setActiveTab] = useState<'files' | 'board' | 'chat' | 'users'>('files');
   const [chatInput, setChatInput] = useState('');
   const chatContainerRef = useRef<HTMLDivElement>(null);
 
@@ -701,6 +703,14 @@ export default function WorkspacePage() {
                       <FolderTree className="h-4 w-4" />
                     </Button>
                     <Button
+                      variant={activeTab === 'board' ? 'secondary' : 'ghost'}
+                      size="sm"
+                      className="h-7 px-2"
+                      onClick={() => setActiveTab('board')}
+                    >
+                      <LayoutGrid className="h-4 w-4" />
+                    </Button>
+                    <Button
                       variant={activeTab === 'chat' ? 'secondary' : 'ghost'}
                       size="sm"
                       className="h-7 px-2"
@@ -862,6 +872,17 @@ export default function WorkspacePage() {
                     </div>
                   )}
 
+                  {activeTab === 'board' && (
+                    <div>
+                      <h3 className="px-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                        Kanban Board
+                      </h3>
+                      <p className="px-2 text-xs text-muted-foreground">
+                        Manage tasks and track progress using the board view in the main area.
+                      </p>
+                    </div>
+                  )}
+
                   {activeTab === 'users' && (
                     <div>
                       <h3 className="px-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
@@ -904,18 +925,24 @@ export default function WorkspacePage() {
                       <div className="space-y-2">
                         {currentProject.members?.map((member) => {
                           const isOnline = presentUsers.some((p) => p.id === member.userId);
+                          const displayName = member.user?.firstName
+                            ? `${member.user.firstName} ${member.user.lastName || ''}`.trim()
+                            : member.user?.username || member.user?.email || 'Unknown';
                           return (
                             <div
                               key={member.id}
                               className="flex items-center gap-2 px-2 py-1 rounded hover:bg-accent"
                             >
                               <Avatar className="h-7 w-7">
+                                <AvatarImage src={member.user?.image || undefined} />
                                 <AvatarFallback className="text-xs">
-                                  {member.user?.name?.[0]?.toUpperCase() || 'U'}
+                                  {member.user?.firstName?.[0]?.toUpperCase() ||
+                                    member.user?.email?.[0]?.toUpperCase() ||
+                                    'U'}
                                 </AvatarFallback>
                               </Avatar>
                               <div className="flex-1 min-w-0">
-                                <p className="text-sm truncate">{member.user?.name}</p>
+                                <p className="text-sm truncate">{displayName}</p>
                                 <p className="text-xs text-muted-foreground">{member.role}</p>
                               </div>
                               <div
@@ -934,57 +961,68 @@ export default function WorkspacePage() {
               )}
             </div>
 
-            {/* Editor Area */}
+            {/* Main Content Area */}
             <div className="flex-1 flex flex-col overflow-hidden">
-              {/* Editor Tabs */}
-              <div className="flex h-9 items-center border-b bg-muted/30 px-2 gap-1">
-                {selectedFile ? (
-                  <div className="flex items-center gap-1 px-3 py-1 bg-background rounded-t border border-b-0 text-sm">
-                    <FileCode className="h-3.5 w-3.5 text-blue-500" />
-                    <span>{selectedFile.name}</span>
-                    {hasUnsavedChanges && <span className="text-yellow-500">●</span>}
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-4 w-4 ml-1"
-                      onClick={() => {
-                        setSelectedFile(null);
-                        setFileContent('');
-                        setHasUnsavedChanges(false);
-                      }}
-                    >
-                      <X className="h-3 w-3" />
-                    </Button>
+              {activeTab === 'board' ? (
+                /* Kanban Board View */
+                <KanbanBoard
+                  projectId={projectId}
+                  members={currentProject.members || []}
+                />
+              ) : (
+                /* Editor View */
+                <>
+                  {/* Editor Tabs */}
+                  <div className="flex h-9 items-center border-b bg-muted/30 px-2 gap-1">
+                    {selectedFile ? (
+                      <div className="flex items-center gap-1 px-3 py-1 bg-background rounded-t border border-b-0 text-sm">
+                        <FileCode className="h-3.5 w-3.5 text-blue-500" />
+                        <span>{selectedFile.name}</span>
+                        {hasUnsavedChanges && <span className="text-yellow-500">●</span>}
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-4 w-4 ml-1"
+                          onClick={() => {
+                            setSelectedFile(null);
+                            setFileContent('');
+                            setHasUnsavedChanges(false);
+                          }}
+                        >
+                          <X className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    ) : (
+                      <span className="text-sm text-muted-foreground px-3">No file selected</span>
+                    )}
                   </div>
-                ) : (
-                  <span className="text-sm text-muted-foreground px-3">No file selected</span>
-                )}
-              </div>
 
-              {/* Editor Content */}
-              <div className="flex-1 overflow-auto bg-[#1e1e1e]">
-                {selectedFile ? (
-                  <textarea
-                    value={fileContent}
-                    onChange={handleContentChange}
-                    className="w-full h-full bg-transparent text-gray-300 font-mono text-sm p-4 resize-none focus:outline-none"
-                    placeholder="Start typing..."
-                    spellCheck={false}
-                  />
-                ) : (
-                  <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
-                    <Code2 className="h-16 w-16 mb-4 opacity-50" />
-                    <p className="text-lg font-medium">Welcome to {currentProject.name}</p>
-                    <p className="text-sm mt-2">Select a file from the sidebar to start editing</p>
-                    <div className="flex gap-2 mt-4">
-                      <Button variant="outline" size="sm" onClick={() => setIsNewFileDialogOpen(true)}>
-                        <Plus className="h-4 w-4 mr-2" />
-                        New File
-                      </Button>
-                    </div>
+                  {/* Editor Content */}
+                  <div className="flex-1 overflow-auto bg-[#1e1e1e]">
+                    {selectedFile ? (
+                      <textarea
+                        value={fileContent}
+                        onChange={handleContentChange}
+                        className="w-full h-full bg-transparent text-gray-300 font-mono text-sm p-4 resize-none focus:outline-none"
+                        placeholder="Start typing..."
+                        spellCheck={false}
+                      />
+                    ) : (
+                      <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
+                        <Code2 className="h-16 w-16 mb-4 opacity-50" />
+                        <p className="text-lg font-medium">Welcome to {currentProject.name}</p>
+                        <p className="text-sm mt-2">Select a file from the sidebar to start editing</p>
+                        <div className="flex gap-2 mt-4">
+                          <Button variant="outline" size="sm" onClick={() => setIsNewFileDialogOpen(true)}>
+                            <Plus className="h-4 w-4 mr-2" />
+                            New File
+                          </Button>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
+                </>
+              )}
 
               {/* Status Bar */}
               <div className="flex h-6 items-center justify-between border-t bg-muted/50 px-4 text-xs text-muted-foreground">

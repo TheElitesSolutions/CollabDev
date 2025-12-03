@@ -7,8 +7,11 @@ export type ProjectMember = {
   userId: string;
   user: {
     id: string;
-    name: string;
+    username?: string;
+    firstName?: string;
+    lastName?: string;
     email: string;
+    image?: string;
   };
   createdAt: string;
   updatedAt: string;
@@ -21,8 +24,11 @@ export type Project = {
   createdByUserId: string;
   createdBy: {
     id: string;
-    name: string;
+    username?: string;
+    firstName?: string;
+    lastName?: string;
     email: string;
+    image?: string;
   };
   members: ProjectMember[];
   createdAt: string;

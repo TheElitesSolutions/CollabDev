@@ -17,6 +17,54 @@ export interface ProjectFile {
   children?: ProjectFile[];
 }
 
+// Kanban Board Types
+export type TaskStatus = 'TODO' | 'IN_PROGRESS' | 'DONE';
+export type TaskPriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
+
+export interface TaskUser {
+  id: string;
+  username: string;
+  firstName: string | null;
+  lastName: string | null;
+  image: string | null;
+}
+
+export interface Task {
+  id: string;
+  createdAt: string;
+  updatedAt: string;
+  title: string;
+  description: string | null;
+  status: TaskStatus;
+  priority: TaskPriority;
+  position: number;
+  dueDate: string | null;
+  columnId: string;
+  projectId: string;
+  assigneeId: string | null;
+  assignee: TaskUser | null;
+  createdById: string;
+  createdBy: TaskUser;
+}
+
+export interface Column {
+  id: string;
+  createdAt: string;
+  updatedAt: string;
+  name: string;
+  position: number;
+  boardId: string;
+  tasks: Task[];
+}
+
+export interface Board {
+  id: string;
+  createdAt: string;
+  updatedAt: string;
+  projectId: string;
+  columns: Column[];
+}
+
 const API_URL = appConfig.apiUrl;
 
 export class ApiError extends Error {
@@ -274,6 +322,99 @@ export const apiClient = {
       return request('/api/v1/user/profile', {
         method: 'PATCH',
         body: JSON.stringify(data),
+      });
+    },
+  },
+
+  // Board/Kanban APIs
+  board: {
+    async getBoard(projectId: string): Promise<Board> {
+      return request(`/api/project/${projectId}/board`, {
+        method: 'GET',
+      });
+    },
+
+    async createColumn(
+      projectId: string,
+      data: { name: string; position?: number }
+    ): Promise<Column> {
+      return request(`/api/project/${projectId}/columns`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+      });
+    },
+
+    async updateColumn(columnId: string, name: string): Promise<Column> {
+      return request(`/api/columns/${columnId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ name }),
+      });
+    },
+
+    async deleteColumn(columnId: string): Promise<void> {
+      return request(`/api/columns/${columnId}`, {
+        method: 'DELETE',
+        body: JSON.stringify({}),
+      });
+    },
+
+    async createTask(
+      projectId: string,
+      data: {
+        columnId: string;
+        title: string;
+        description?: string;
+        assigneeId?: string;
+        dueDate?: string;
+        priority?: TaskPriority;
+        position?: number;
+      }
+    ): Promise<Task> {
+      return request(`/api/project/${projectId}/tasks`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+      });
+    },
+
+    async getTask(taskId: string): Promise<Task> {
+      return request(`/api/tasks/${taskId}`, {
+        method: 'GET',
+      });
+    },
+
+    async updateTask(
+      taskId: string,
+      data: {
+        columnId?: string;
+        title?: string;
+        description?: string;
+        status?: TaskStatus;
+        priority?: TaskPriority;
+        assigneeId?: string | null;
+        dueDate?: string | null;
+        position?: number;
+      }
+    ): Promise<Task> {
+      return request(`/api/tasks/${taskId}`, {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+      });
+    },
+
+    async moveTask(
+      taskId: string,
+      data: { columnId: string; position: number }
+    ): Promise<Task> {
+      return request(`/api/tasks/${taskId}/move`, {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+      });
+    },
+
+    async deleteTask(taskId: string): Promise<void> {
+      return request(`/api/tasks/${taskId}`, {
+        method: 'DELETE',
+        body: JSON.stringify({}),
       });
     },
   },
