@@ -1,0 +1,90 @@
+version: '3.8'
+
+# Development compose file - use with: docker-compose -f docker-compose.dev.yml up
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: collabdev-postgres-dev
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: collabdev
+      POSTGRES_PASSWORD: collabdev
+      POSTGRES_DB: collabdev
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U collabdev"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: collabdev-redis-dev
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_dev_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Neo4j Graph Database (optional for development)
+  neo4j:
+    image: neo4j:5-community
+    container_name: collabdev-neo4j-dev
+    restart: unless-stopped
+    environment:
+      NEO4J_AUTH: neo4j/password
+      NEO4J_PLUGINS: '["apoc"]'
+    volumes:
+      - neo4j_dev_data:/data
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    profiles:
+      - full
+
+  # Redis Commander (Redis GUI)
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: collabdev-redis-commander
+    restart: unless-stopped
+    depends_on:
+      - redis
+    environment:
+      REDIS_HOSTS: local:redis:6379
+    ports:
+      - "8081:8081"
+    profiles:
+      - tools
+
+  # Adminer (PostgreSQL GUI)
+  adminer:
+    image: adminer:latest
+    container_name: collabdev-adminer
+    restart: unless-stopped
+    depends_on:
+      - postgres
+    ports:
+      - "8080:8080"
+    profiles:
+      - tools
+
+volumes:
+  postgres_dev_data:
+  redis_dev_data:
+  neo4j_dev_data:
+
+networks:
+  default:
+    name: collabdev-dev-network

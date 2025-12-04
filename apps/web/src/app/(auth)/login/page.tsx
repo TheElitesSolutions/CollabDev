@@ -108,12 +108,6 @@ export default function LoginPage() {
                 disabled={isSubmitting}
               />
             </div>
-
-            <div className="text-sm text-muted-foreground">
-              <p className="font-semibold mb-1">Demo Credentials:</p>
-              <p>Email: demo@collabdev.com</p>
-              <p>Password: password123</p>
-            </div>
           </CardContent>
 
           <CardFooter className="flex flex-col space-y-4">

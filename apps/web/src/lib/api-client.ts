@@ -65,6 +65,119 @@ export interface Board {
   columns: Column[];
 }
 
+// Chat Types
+export type ConversationType = 'DIRECT' | 'PROJECT' | 'GROUP';
+
+export interface ChatUser {
+  id: string;
+  email: string;
+  username: string | null;
+  displayUsername: string | null;
+  firstName: string | null;
+  lastName: string | null;
+  image: string | null;
+}
+
+export interface ConversationParticipant {
+  id: string;
+  userId: string;
+  lastReadAt: string | null;
+  user: ChatUser;
+}
+
+export interface Message {
+  id: string;
+  createdAt: string;
+  updatedAt: string;
+  content: string;
+  attachments: string | null;
+  isEdited: boolean;
+  editedAt: string | null;
+  conversationId: string;
+  senderId: string;
+  sender: ChatUser;
+  replyToId: string | null;
+  replyTo?: Message | null;
+}
+
+export interface Conversation {
+  id: string;
+  createdAt: string;
+  updatedAt: string;
+  name: string | null;
+  type: ConversationType;
+  projectId: string | null;
+  participants: ConversationParticipant[];
+  lastMessage?: Message | null;
+  project?: { id: string; name: string } | null;
+}
+
+export interface UnreadCount {
+  total: number;
+  byConversation: Record<string, number>;
+}
+
+// Website Builder Types
+export interface Page {
+  id: string;
+  createdAt: string;
+  updatedAt: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  content: PuckData;
+  position: number;
+  isPublished: boolean;
+  projectId: string;
+  generatedFileId: string | null;
+}
+
+export interface PuckData {
+  content: PuckComponent[];
+  root: Record<string, unknown>;
+}
+
+export interface PuckComponent {
+  type: string;
+  props: Record<string, unknown>;
+}
+
+export interface BuilderCollaborator {
+  id: string;
+  email: string;
+  firstName?: string;
+  lastName?: string;
+  image?: string | null;
+  cursor?: { x: number; y: number };
+}
+
+// Call Types
+export type CallType = 'VOICE' | 'VIDEO';
+export type CallStatus = 'RINGING' | 'ONGOING' | 'ENDED' | 'MISSED' | 'DECLINED';
+
+export interface CallParticipant {
+  id: string;
+  joinedAt: string | null;
+  leftAt: string | null;
+  isMuted: boolean;
+  isVideoOff: boolean;
+  isScreenSharing: boolean;
+  user: ChatUser;
+}
+
+export interface Call {
+  id: string;
+  createdAt: string;
+  type: CallType;
+  status: CallStatus;
+  startedAt: string | null;
+  endedAt: string | null;
+  conversationId: string | null;
+  projectId: string | null;
+  initiator: ChatUser;
+  participants: CallParticipant[];
+}
+
 const API_URL = appConfig.apiUrl;
 
 export class ApiError extends Error {
@@ -127,10 +240,10 @@ export const apiClient = {
       });
     },
 
-    async signup(email: string, password: string, name: string): Promise<{ user: User }> {
+    async signup(email: string, password: string, name: string, username: string): Promise<{ user: User }> {
       return request('/api/auth/sign-up/email', {
         method: 'POST',
-        body: JSON.stringify({ email, password, name }),
+        body: JSON.stringify({ email, password, name, username }),
       });
     },
 
@@ -284,6 +397,7 @@ export const apiClient = {
         name?: string;
         content?: string;
         path?: string;
+        parentId?: string | null;
       }
     ): Promise<ProjectFile> {
       return request(`/api/project/${projectId}/files/${fileId}`, {
@@ -414,6 +528,171 @@ export const apiClient = {
     async deleteTask(taskId: string): Promise<void> {
       return request(`/api/tasks/${taskId}`, {
         method: 'DELETE',
+        body: JSON.stringify({}),
+      });
+    },
+  },
+
+  // Chat APIs
+  chat: {
+    async getConversations(): Promise<Conversation[]> {
+      return request('/api/chat/conversations', {
+        method: 'GET',
+      });
+    },
+
+    async getConversation(conversationId: string): Promise<Conversation> {
+      return request(`/api/chat/conversations/${conversationId}`, {
+        method: 'GET',
+      });
+    },
+
+    async getOrCreateDirectConversation(targetUserId: string): Promise<Conversation> {
+      return request('/api/chat/conversations/direct', {
+        method: 'POST',
+        body: JSON.stringify({ targetUserId }),
+      });
+    },
+
+    async createGroupConversation(data: {
+      name: string;
+      participantIds: string[];
+    }): Promise<Conversation> {
+      return request('/api/chat/conversations', {
+        method: 'POST',
+        body: JSON.stringify({ ...data, type: 'GROUP' }),
+      });
+    },
+
+    async getProjectConversation(projectId: string): Promise<Conversation> {
+      return request(`/api/chat/project/${projectId}`, {
+        method: 'GET',
+      });
+    },
+
+    async getMessages(
+      conversationId: string,
+      options?: { limit?: number; before?: string }
+    ): Promise<Message[]> {
+      const params = new URLSearchParams();
+      if (options?.limit) params.append('limit', options.limit.toString());
+      if (options?.before) params.append('before', options.before);
+      const queryString = params.toString();
+      return request(
+        `/api/chat/conversations/${conversationId}/messages${queryString ? `?${queryString}` : ''}`,
+        { method: 'GET' }
+      );
+    },
+
+    async sendMessage(
+      conversationId: string,
+      data: { content: string; replyToId?: string }
+    ): Promise<Message> {
+      return request(`/api/chat/conversations/${conversationId}/messages`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+      });
+    },
+
+    async updateMessage(
+      messageId: string,
+      data: { content: string }
+    ): Promise<Message> {
+      return request(`/api/chat/messages/${messageId}`, {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+      });
+    },
+
+    async deleteMessage(messageId: string): Promise<void> {
+      return request(`/api/chat/messages/${messageId}`, {
+        method: 'DELETE',
+      });
+    },
+
+    async markAsRead(conversationId: string): Promise<void> {
+      return request(`/api/chat/conversations/${conversationId}/read`, {
+        method: 'POST',
+        body: JSON.stringify({}),
+      });
+    },
+
+    async getUnreadCount(): Promise<UnreadCount> {
+      return request('/api/chat/unread', {
+        method: 'GET',
+      });
+    },
+  },
+
+  // Website Builder APIs
+  builder: {
+    async getPages(projectId: string): Promise<Page[]> {
+      return request(`/api/projects/${projectId}/pages`, {
+        method: 'GET',
+      });
+    },
+
+    async getPage(projectId: string, pageId: string): Promise<Page> {
+      return request(`/api/projects/${projectId}/pages/${pageId}`, {
+        method: 'GET',
+      });
+    },
+
+    async createPage(
+      projectId: string,
+      data: { name: string; slug: string; description?: string; isPublished?: boolean }
+    ): Promise<Page> {
+      return request(`/api/projects/${projectId}/pages`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+      });
+    },
+
+    async updatePage(
+      projectId: string,
+      pageId: string,
+      data: {
+        name?: string;
+        slug?: string;
+        description?: string;
+        content?: PuckData;
+        position?: number;
+        isPublished?: boolean;
+      }
+    ): Promise<Page> {
+      return request(`/api/projects/${projectId}/pages/${pageId}`, {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+      });
+    },
+
+    async deletePage(projectId: string, pageId: string): Promise<void> {
+      return request(`/api/projects/${projectId}/pages/${pageId}`, {
+        method: 'DELETE',
+        body: JSON.stringify({}),
+      });
+    },
+
+    async reorderPages(
+      projectId: string,
+      pageIds: string[]
+    ): Promise<Page[]> {
+      return request(`/api/projects/${projectId}/pages/reorder`, {
+        method: 'POST',
+        body: JSON.stringify({ pageIds }),
+      });
+    },
+
+    async duplicatePage(projectId: string, pageId: string): Promise<Page> {
+      return request(`/api/projects/${projectId}/pages/${pageId}/duplicate`, {
+        method: 'POST',
+        body: JSON.stringify({}),
+      });
+    },
+
+    async generateCode(projectId: string, pageId: string): Promise<{ code: string; filePath: string }> {
+      return request(`/api/projects/${projectId}/pages/${pageId}/generate`, {
+        method: 'POST',
         body: JSON.stringify({}),
       });
     },

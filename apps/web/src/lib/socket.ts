@@ -33,10 +33,12 @@ export type CursorPosition = {
 export type ChatMessage = {
   id: string;
   userId: string;
-  userName: string;
+  username: string;
+  userImage?: string | null;
   content: string;
-  timestamp: Date;
+  timestamp: string;
   projectId: string;
+  replyToId?: string | null;
 };
 
 // Board event types
@@ -189,9 +191,9 @@ export function sendCursorPosition(data: Omit<CursorPosition, 'userId' | 'userNa
   }
 }
 
-export function sendChatMessage(projectId: string, content: string): void {
+export function sendChatMessage(projectId: string, content: string, replyToId?: string): void {
   if (socket?.connected) {
-    socket.emit('chat:message', { projectId, content });
+    socket.emit('chat:message', { projectId, content, replyToId });
   }
 }
 
@@ -324,5 +326,281 @@ export function onFileSaved(callback: (data: FileSavedEvent) => void): () => voi
   socket?.on('file:saved', callback);
   return () => {
     socket?.off('file:saved', callback);
+  };
+}
+
+// Conversation events
+export function joinConversation(conversationId: string): void {
+  if (socket?.connected) {
+    socket.emit('conversation:join', { conversationId });
+  }
+}
+
+export function leaveConversation(conversationId: string): void {
+  if (socket?.connected) {
+    socket.emit('conversation:leave', { conversationId });
+  }
+}
+
+export function sendConversationMessage(conversationId: string, content: string, replyToId?: string): void {
+  if (socket?.connected) {
+    socket.emit('conversation:message', { conversationId, content, replyToId });
+  }
+}
+
+export function markConversationRead(conversationId: string): void {
+  if (socket?.connected) {
+    socket.emit('conversation:read', { conversationId });
+  }
+}
+
+export function setConversationTyping(conversationId: string, isTyping: boolean): void {
+  if (socket?.connected) {
+    socket.emit('conversation:typing', { conversationId, isTyping });
+  }
+}
+
+export function onConversationMessage(callback: (data: ChatMessage & { conversationId: string }) => void): () => void {
+  socket?.on('conversation:message', callback);
+  return () => {
+    socket?.off('conversation:message', callback);
+  };
+}
+
+export function onConversationNotification(callback: (data: { conversationId: string; message: ChatMessage }) => void): () => void {
+  socket?.on('conversation:notification', callback);
+  return () => {
+    socket?.off('conversation:notification', callback);
+  };
+}
+
+export function onConversationTyping(callback: (data: { conversationId: string; userId: string; userName: string; isTyping: boolean }) => void): () => void {
+  socket?.on('conversation:typing', callback);
+  return () => {
+    socket?.off('conversation:typing', callback);
+  };
+}
+
+export function onConversationRead(callback: (data: { conversationId: string; userId: string; readAt: string }) => void): () => void {
+  socket?.on('conversation:read', callback);
+  return () => {
+    socket?.off('conversation:read', callback);
+  };
+}
+
+// Call events
+export function initiateCall(data: { conversationId?: string; projectId?: string; targetUserIds?: string[]; type: 'VOICE' | 'VIDEO' }): void {
+  if (socket?.connected) {
+    socket.emit('call:initiate', data);
+  }
+}
+
+export function joinCall(callId: string): void {
+  if (socket?.connected) {
+    socket.emit('call:join', { callId });
+  }
+}
+
+export function leaveCall(callId: string): void {
+  if (socket?.connected) {
+    socket.emit('call:leave', { callId });
+  }
+}
+
+export function declineCall(callId: string): void {
+  if (socket?.connected) {
+    socket.emit('call:decline', { callId });
+  }
+}
+
+export function endCall(callId: string): void {
+  if (socket?.connected) {
+    socket.emit('call:end', { callId });
+  }
+}
+
+export function toggleCallMedia(callId: string, data: { isMuted?: boolean; isVideoOff?: boolean; isScreenSharing?: boolean }): void {
+  if (socket?.connected) {
+    socket.emit('call:toggle-media', { callId, ...data });
+  }
+}
+
+export function sendCallSignal(type: 'offer' | 'answer' | 'ice-candidate', data: any): void {
+  if (socket?.connected) {
+    socket.emit(`call:${type}`, data);
+  }
+}
+
+export function onCallIncoming(callback: (data: any) => void): () => void {
+  socket?.on('call:incoming', callback);
+  return () => {
+    socket?.off('call:incoming', callback);
+  };
+}
+
+export function onCallCreated(callback: (data: any) => void): () => void {
+  socket?.on('call:created', callback);
+  return () => {
+    socket?.off('call:created', callback);
+  };
+}
+
+export function onCallJoined(callback: (data: any) => void): () => void {
+  socket?.on('call:joined', callback);
+  return () => {
+    socket?.off('call:joined', callback);
+  };
+}
+
+export function onCallParticipantJoined(callback: (data: any) => void): () => void {
+  socket?.on('call:participant-joined', callback);
+  return () => {
+    socket?.off('call:participant-joined', callback);
+  };
+}
+
+export function onCallParticipantLeft(callback: (data: any) => void): () => void {
+  socket?.on('call:participant-left', callback);
+  return () => {
+    socket?.off('call:participant-left', callback);
+  };
+}
+
+export function onCallEnded(callback: (data: any) => void): () => void {
+  socket?.on('call:ended', callback);
+  return () => {
+    socket?.off('call:ended', callback);
+  };
+}
+
+export function onCallDeclined(callback: (data: any) => void): () => void {
+  socket?.on('call:declined', callback);
+  return () => {
+    socket?.off('call:declined', callback);
+  };
+}
+
+export function onCallMediaToggled(callback: (data: any) => void): () => void {
+  socket?.on('call:media-toggled', callback);
+  return () => {
+    socket?.off('call:media-toggled', callback);
+  };
+}
+
+export function onCallSignal(type: 'offer' | 'answer' | 'ice-candidate', callback: (data: any) => void): () => void {
+  socket?.on(`call:${type}`, callback);
+  return () => {
+    socket?.off(`call:${type}`, callback);
+  };
+}
+
+// Website Builder types
+export type BuilderCollaborator = {
+  id: string;
+  email: string;
+  firstName?: string;
+  lastName?: string;
+  image?: string | null;
+  cursor?: { x: number; y: number };
+};
+
+export type BuilderPresenceUpdate = {
+  pageId: string;
+  projectId: string;
+  users: BuilderCollaborator[];
+  action: 'join' | 'leave';
+  user: {
+    id: string;
+    email: string;
+    name?: string;
+  };
+};
+
+export type BuilderCursorEvent = {
+  pageId: string;
+  projectId: string;
+  userId: string;
+  userName: string;
+  userColor?: string;
+  cursor: { x: number; y: number };
+};
+
+export type BuilderPageEvent = {
+  projectId: string;
+  page: any;
+};
+
+export type BuilderPageDeletedEvent = {
+  projectId: string;
+  pageId: string;
+};
+
+export type BuilderPagesReorderedEvent = {
+  projectId: string;
+  pages: any[];
+};
+
+// Website Builder functions
+export function joinBuilderPage(projectId: string, pageId: string): void {
+  if (socket?.connected) {
+    socket.emit('builder:join', { projectId, pageId });
+  }
+}
+
+export function leaveBuilderPage(projectId: string, pageId: string): void {
+  if (socket?.connected) {
+    socket.emit('builder:leave', { projectId, pageId });
+  }
+}
+
+export function sendBuilderCursor(
+  projectId: string,
+  pageId: string,
+  cursor: { x: number; y: number }
+): void {
+  if (socket?.connected) {
+    socket.emit('builder:cursor', { projectId, pageId, cursor });
+  }
+}
+
+export function onBuilderPresence(callback: (data: BuilderPresenceUpdate) => void): () => void {
+  socket?.on('builder:presence', callback);
+  return () => {
+    socket?.off('builder:presence', callback);
+  };
+}
+
+export function onBuilderCursor(callback: (data: BuilderCursorEvent) => void): () => void {
+  socket?.on('builder:cursor', callback);
+  return () => {
+    socket?.off('builder:cursor', callback);
+  };
+}
+
+export function onPageCreated(callback: (data: BuilderPageEvent) => void): () => void {
+  socket?.on('page:created', callback);
+  return () => {
+    socket?.off('page:created', callback);
+  };
+}
+
+export function onPageUpdated(callback: (data: BuilderPageEvent) => void): () => void {
+  socket?.on('page:updated', callback);
+  return () => {
+    socket?.off('page:updated', callback);
+  };
+}
+
+export function onPageDeleted(callback: (data: BuilderPageDeletedEvent) => void): () => void {
+  socket?.on('page:deleted', callback);
+  return () => {
+    socket?.off('page:deleted', callback);
+  };
+}
+
+export function onPagesReordered(callback: (data: BuilderPagesReorderedEvent) => void): () => void {
+  socket?.on('pages:reordered', callback);
+  return () => {
+    socket?.off('pages:reordered', callback);
   };
 }

@@ -1,39 +1,29 @@
 'use client';
 
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
   ArrowLeft,
   Code2,
   FileCode,
-  FolderTree,
-  MessageSquare,
   Settings,
-  Users,
-  Video,
-  PanelLeftClose,
-  PanelLeft,
   Save,
   Play,
   RefreshCw,
   MoreVertical,
-  Send,
   Circle,
-  Plus,
-  File,
-  Folder,
-  Trash2,
   Loader2,
   X,
   LayoutGrid,
+  Palette,
+  Terminal,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Input } from '@/components/ui/input';
 import {
   Tooltip,
   TooltipContent,
@@ -55,15 +45,21 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
 import { AuthGuard } from '@/components/auth/auth-guard';
 import { KanbanBoard } from '@/components/kanban';
-import { CodeEditor } from '@/components/editor';
+import { CodeEditor, EditorTabs, EditorTab } from '@/components/editor';
+import { VideoCall, IncomingCallDialog } from '@/components/video-call';
+import { WorkspaceLayout, LeftSidebar, RightSidebar } from '@/components/workspace';
+import { BuilderView } from '@/components/builder';
 import { useAuthStore } from '@/store/auth.store';
 import { useProjectStore } from '@/store/project.store';
 import { useSocketStore } from '@/store/socket.store';
 import { apiClient, ProjectFile } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
+import { TerminalPanel } from '@/components/terminal';
+import { useTerminalStore } from '@/store/terminal.store';
 
 // Build tree structure from flat file list
 function buildFileTree(files: ProjectFile[]): ProjectFile[] {
@@ -101,77 +97,6 @@ function buildFileTree(files: ProjectFile[]): ProjectFile[] {
   return sortNodes(roots);
 }
 
-interface FileTreeItemProps {
-  file: ProjectFile;
-  depth?: number;
-  selectedFileId: string | null;
-  onSelect: (file: ProjectFile) => void;
-  onDelete: (file: ProjectFile) => void;
-}
-
-function FileTreeItem({
-  file,
-  depth = 0,
-  selectedFileId,
-  onSelect,
-  onDelete,
-}: FileTreeItemProps) {
-  const [isOpen, setIsOpen] = useState(true);
-
-  const handleClick = () => {
-    if (file.isFolder) {
-      setIsOpen(!isOpen);
-    } else {
-      onSelect(file);
-    }
-  };
-
-  return (
-    <div>
-      <div
-        className={cn(
-          'group flex items-center gap-2 px-2 py-1 text-sm hover:bg-accent rounded cursor-pointer',
-          depth > 0 && 'ml-4',
-          selectedFileId === file.id && 'bg-accent'
-        )}
-        onClick={handleClick}
-      >
-        {file.isFolder ? (
-          <FolderTree className="h-4 w-4 text-yellow-500 shrink-0" />
-        ) : (
-          <FileCode className="h-4 w-4 text-blue-500 shrink-0" />
-        )}
-        <span className="truncate flex-1">{file.name}</span>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-5 w-5 opacity-0 group-hover:opacity-100 shrink-0"
-          onClick={(e) => {
-            e.stopPropagation();
-            onDelete(file);
-          }}
-        >
-          <Trash2 className="h-3 w-3 text-destructive" />
-        </Button>
-      </div>
-      {file.isFolder && isOpen && file.children && (
-        <div>
-          {file.children.map((child) => (
-            <FileTreeItem
-              key={child.id}
-              file={child}
-              depth={depth + 1}
-              selectedFileId={selectedFileId}
-              onSelect={onSelect}
-              onDelete={onDelete}
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 export default function WorkspacePage() {
   const params = useParams();
   const router = useRouter();
@@ -183,28 +108,56 @@ export default function WorkspacePage() {
   const {
     isConnected,
     presentUsers,
-    messages,
-    connect,
-    joinWorkspace,
-    leaveWorkspace,
-    sendMessage,
   } = useSocketStore();
+
+  const { isPanelOpen, panelHeight, togglePanel } = useTerminalStore();
 
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  const [activeTab, setActiveTab] = useState<'files' | 'board' | 'chat' | 'users'>('files');
-  const [chatInput, setChatInput] = useState('');
-  const chatContainerRef = useRef<HTMLDivElement>(null);
+  const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(true);
+  const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(true);
+  const [showVideoCall, setShowVideoCall] = useState(false);
+  const [acceptedCallInfo, setAcceptedCallInfo] = useState<{
+    callId: string;
+    type: 'VOICE' | 'VIDEO';
+  } | null>(null);
+  const [activeView, setActiveView] = useState<'editor' | 'board' | 'builder'>('editor');
 
   // File state
   const [files, setFiles] = useState<ProjectFile[]>([]);
   const [fileTree, setFileTree] = useState<ProjectFile[]>([]);
-  const [selectedFile, setSelectedFile] = useState<ProjectFile | null>(null);
-  const [fileContent, setFileContent] = useState<string>('');
+  const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
   const [isFilesLoading, setIsFilesLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+
+  // Tab state
+  const [openTabs, setOpenTabs] = useState<EditorTab[]>([]);
+  const [activeTabId, setActiveTabId] = useState<string | null>(null);
+  const [tabContents, setTabContents] = useState<Map<string, { content: string; savedContent: string }>>(new Map());
+
+  // Get active tab and file
+  const activeTab = useMemo(() =>
+    openTabs.find(tab => tab.file.id === activeTabId),
+    [openTabs, activeTabId]
+  );
+  const selectedFile = activeTab?.file || null;
+
+  // Get content for active file
+  const fileContent = useMemo(() =>
+    tabContents.get(activeTabId || '')?.content || '',
+    [tabContents, activeTabId]
+  );
+  const savedContent = useMemo(() =>
+    tabContents.get(activeTabId || '')?.savedContent || '',
+    [tabContents, activeTabId]
+  );
+
+  // Compute unsaved changes
+  const hasUnsavedChanges = useMemo(() => {
+    if (!activeTabId) return false;
+    const content = tabContents.get(activeTabId);
+    return content ? content.content !== content.savedContent : false;
+  }, [activeTabId, tabContents]);
 
   // Dialog state
   const [isNewFileDialogOpen, setIsNewFileDialogOpen] = useState(false);
@@ -217,182 +170,248 @@ export default function WorkspacePage() {
     const fetchProject = async () => {
       try {
         setIsLoading(true);
-        setError(null);
         const project = await apiClient.projects.getById(projectId);
         setCurrentProject(project);
+        setError(null);
       } catch (err) {
-        console.error('Failed to fetch project:', err);
-        setError('Project not found or you do not have access.');
+        console.error('Failed to load project:', err);
+        setError('Failed to load project');
       } finally {
         setIsLoading(false);
       }
     };
 
-    if (projectId) {
-      fetchProject();
+    fetchProject();
+  }, [projectId, setCurrentProject]);
+
+  // Connect to WebSocket and join workspace
+  useEffect(() => {
+    if (currentProject && projectId) {
+      const { connect, joinWorkspace, leaveWorkspace } = useSocketStore.getState();
+      connect();
+      joinWorkspace(projectId);
     }
 
     return () => {
-      setCurrentProject(null);
+      const { leaveWorkspace } = useSocketStore.getState();
+      leaveWorkspace();
     };
-  }, [projectId, setCurrentProject]);
+  }, [currentProject, projectId]);
 
-  // Fetch project files
-  const fetchFiles = useCallback(async () => {
-    if (!projectId) return;
+  // Handle file selection - open in tab or switch to existing tab
+  const handleFileSelect = async (file: ProjectFile) => {
+    if (file.isFolder) return;
 
+    // Check if file is already open in a tab
+    const existingTab = openTabs.find(tab => tab.file.id === file.id);
+    if (existingTab) {
+      setActiveTabId(file.id);
+      return;
+    }
+
+    // Open new tab
+    setIsFilesLoading(true);
     try {
-      setIsFilesLoading(true);
-      let projectFiles = await apiClient.files.getAll(projectId);
+      const fullFile = await apiClient.files.getById(projectId, file.id);
+      const content = fullFile.content || '';
 
-      // If no files exist, initialize with starter files
-      if (projectFiles.length === 0) {
-        projectFiles = await apiClient.files.initialize(projectId);
-        toast({
-          title: 'Project initialized',
-          description: 'Starter files have been created for your project.',
-        });
-      }
+      // Add to tabs
+      setOpenTabs(prev => [...prev, { file, isDirty: false }]);
+      setActiveTabId(file.id);
 
-      setFiles(projectFiles);
-      setFileTree(buildFileTree(projectFiles));
-    } catch (err) {
-      console.error('Failed to fetch files:', err);
+      // Store content
+      setTabContents(prev => new Map(prev).set(file.id, {
+        content,
+        savedContent: content,
+      }));
+
+      toast({
+        title: 'File loaded',
+        description: `${file.name} opened successfully`,
+      });
+    } catch (error) {
+      console.error('Failed to load file:', error);
       toast({
         title: 'Error',
-        description: 'Failed to load project files.',
+        description: 'Failed to load file content',
         variant: 'destructive',
       });
     } finally {
       setIsFilesLoading(false);
     }
-  }, [projectId, toast]);
+  };
 
+  // Handle file content change
+  const handleContentChange = useCallback((newContent: string) => {
+    if (!activeTabId) return;
+
+    setTabContents(prev => {
+      const newMap = new Map(prev);
+      const current = newMap.get(activeTabId);
+      if (current) {
+        newMap.set(activeTabId, { ...current, content: newContent });
+      }
+      return newMap;
+    });
+
+    // Update isDirty status
+    setOpenTabs(prev => prev.map(tab => {
+      if (tab.file.id === activeTabId) {
+        const content = tabContents.get(activeTabId);
+        return { ...tab, isDirty: newContent !== content?.savedContent };
+      }
+      return tab;
+    }));
+  }, [activeTabId, tabContents]);
+
+  // Handle file save
+  const handleSave = useCallback(async () => {
+    if (!selectedFile || !hasUnsavedChanges || !activeTabId) return;
+
+    setIsSaving(true);
+    try {
+      await apiClient.files.update(projectId, selectedFile.id, {
+        content: fileContent,
+      });
+
+      // Update saved content
+      setTabContents(prev => {
+        const newMap = new Map(prev);
+        const current = newMap.get(activeTabId);
+        if (current) {
+          newMap.set(activeTabId, { ...current, savedContent: current.content });
+        }
+        return newMap;
+      });
+
+      // Clear dirty flag
+      setOpenTabs(prev => prev.map(tab =>
+        tab.file.id === activeTabId ? { ...tab, isDirty: false } : tab
+      ));
+
+      toast({
+        title: 'File saved',
+        description: `${selectedFile.name} saved successfully`,
+      });
+    } catch (error) {
+      console.error('Failed to save file:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to save file',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  }, [selectedFile, fileContent, hasUnsavedChanges, activeTabId, projectId, toast]);
+
+  // Handle tab close
+  const handleTabClose = useCallback(async (fileId: string) => {
+    const tab = openTabs.find(t => t.file.id === fileId);
+    if (!tab) return;
+
+    // Check for unsaved changes
+    if (tab.isDirty) {
+      const confirmed = window.confirm(
+        `${tab.file.name} has unsaved changes. Close anyway?`
+      );
+      if (!confirmed) return;
+    }
+
+    // Remove tab
+    setOpenTabs(prev => prev.filter(t => t.file.id !== fileId));
+    setTabContents(prev => {
+      const newMap = new Map(prev);
+      newMap.delete(fileId);
+      return newMap;
+    });
+
+    // Switch to another tab if this was active
+    if (activeTabId === fileId) {
+      const remainingTabs = openTabs.filter(t => t.file.id !== fileId);
+      setActiveTabId(remainingTabs.length > 0 ? remainingTabs[remainingTabs.length - 1].file.id : null);
+    }
+  }, [openTabs, activeTabId]);
+
+  // Handle tab click
+  const handleTabClick = useCallback((fileId: string) => {
+    setActiveTabId(fileId);
+  }, []);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Save: Ctrl+S
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault();
+        handleSave();
+      }
+      // Toggle terminal: Ctrl+` or Ctrl+J (VS Code style)
+      if ((e.ctrlKey || e.metaKey) && (e.key === '`' || e.key === 'j')) {
+        e.preventDefault();
+        togglePanel();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleSave, togglePanel]);
+
+  // Fetch files
+  const fetchFiles = useCallback(async () => {
+    if (!currentProject) return;
+
+    setIsFilesLoading(true);
+    try {
+      const projectFiles = await apiClient.files.getAll(projectId);
+      setFiles(projectFiles);
+      setFileTree(buildFileTree(projectFiles));
+    } catch (error) {
+      console.error('Failed to load files:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to load project files',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsFilesLoading(false);
+    }
+  }, [currentProject, projectId, toast]);
+
+  // Load files on mount
   useEffect(() => {
     if (currentProject) {
       fetchFiles();
     }
   }, [currentProject, fetchFiles]);
 
-  // Connect to WebSocket and join workspace
-  useEffect(() => {
-    if (currentProject && projectId) {
-      connect();
-      joinWorkspace(projectId);
-    }
-
-    return () => {
-      leaveWorkspace();
-    };
-  }, [currentProject, projectId, connect, joinWorkspace, leaveWorkspace]);
-
-  // Auto-scroll chat to bottom
-  useEffect(() => {
-    if (chatContainerRef.current) {
-      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
-    }
-  }, [messages]);
-
-  // Handle file selection
-  const handleFileSelect = async (file: ProjectFile) => {
-    if (file.isFolder) return;
-
-    // Check for unsaved changes
-    if (hasUnsavedChanges && selectedFile) {
-      const confirm = window.confirm('You have unsaved changes. Do you want to discard them?');
-      if (!confirm) return;
-    }
-
-    setSelectedFile(file);
-    setFileContent(file.content || '');
-    setHasUnsavedChanges(false);
-  };
-
-  // Handle content change (for Monaco Editor)
-  const handleContentChange = useCallback((value: string) => {
-    setFileContent(value);
-    setHasUnsavedChanges(true);
-  }, []);
-
-  // Save file
-  const handleSave = useCallback(async () => {
-    if (!selectedFile || !projectId) return;
-
-    try {
-      setIsSaving(true);
-      await apiClient.files.update(projectId, selectedFile.id, {
-        content: fileContent,
-      });
-      setHasUnsavedChanges(false);
-      toast({
-        title: 'Saved',
-        description: `${selectedFile.name} has been saved.`,
-      });
-
-      // Update local file state
-      setFiles((prev) =>
-        prev.map((f) =>
-          f.id === selectedFile.id ? { ...f, content: fileContent } : f
-        )
-      );
-    } catch (err) {
-      console.error('Failed to save file:', err);
-      toast({
-        title: 'Error',
-        description: 'Failed to save file.',
-        variant: 'destructive',
-      });
-    } finally {
-      setIsSaving(false);
-    }
-  }, [selectedFile, projectId, fileContent, toast]);
-
-  // Keyboard shortcut for save
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-        e.preventDefault();
-        if (selectedFile && hasUnsavedChanges) {
-          handleSave();
-        }
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedFile, hasUnsavedChanges, handleSave]);
-
-  // Create new file
+  // Handle create file
   const handleCreateFile = async () => {
-    if (!newItemName.trim() || !projectId) return;
+    if (!newItemName.trim()) return;
 
+    setIsCreating(true);
     try {
-      setIsCreating(true);
-      const newFile = await apiClient.files.create(projectId, {
-        path: newItemName,
+      await apiClient.files.create(projectId, {
         name: newItemName,
+        path: selectedFolderId
+          ? `${files.find((f) => f.id === selectedFolderId)?.path}/${newItemName}`
+          : newItemName,
         isFolder: false,
         content: '',
-        mimeType: getMimeType(newItemName),
+        parentId: selectedFolderId || undefined,
       });
-
-      setFiles((prev) => [...prev, newFile]);
-      setFileTree(buildFileTree([...files, newFile]));
       setIsNewFileDialogOpen(false);
       setNewItemName('');
-
-      // Select the new file
-      handleFileSelect(newFile);
-
+      fetchFiles();
       toast({
         title: 'File created',
-        description: `${newFile.name} has been created.`,
+        description: `${newItemName} created successfully`,
       });
-    } catch (err) {
-      console.error('Failed to create file:', err);
+    } catch (error) {
+      console.error('Failed to create file:', error);
       toast({
         title: 'Error',
-        description: 'Failed to create file.',
+        description: 'Failed to create file',
         variant: 'destructive',
       });
     } finally {
@@ -400,32 +419,32 @@ export default function WorkspacePage() {
     }
   };
 
-  // Create new folder
+  // Handle create folder
   const handleCreateFolder = async () => {
-    if (!newItemName.trim() || !projectId) return;
+    if (!newItemName.trim()) return;
 
+    setIsCreating(true);
     try {
-      setIsCreating(true);
-      const newFolder = await apiClient.files.create(projectId, {
-        path: newItemName,
+      await apiClient.files.create(projectId, {
         name: newItemName,
+        path: selectedFolderId
+          ? `${files.find((f) => f.id === selectedFolderId)?.path}/${newItemName}`
+          : newItemName,
         isFolder: true,
+        parentId: selectedFolderId || undefined,
       });
-
-      setFiles((prev) => [...prev, newFolder]);
-      setFileTree(buildFileTree([...files, newFolder]));
       setIsNewFolderDialogOpen(false);
       setNewItemName('');
-
+      fetchFiles();
       toast({
         title: 'Folder created',
-        description: `${newFolder.name} has been created.`,
+        description: `${newItemName} created successfully`,
       });
-    } catch (err) {
-      console.error('Failed to create folder:', err);
+    } catch (error) {
+      console.error('Failed to create folder:', error);
       toast({
         title: 'Error',
-        description: 'Failed to create folder.',
+        description: 'Failed to create folder',
         variant: 'destructive',
       });
     } finally {
@@ -433,75 +452,90 @@ export default function WorkspacePage() {
     }
   };
 
-  // Delete file/folder
-  const handleDelete = async (file: ProjectFile) => {
-    const confirm = window.confirm(
-      `Are you sure you want to delete "${file.name}"?${
-        file.isFolder ? ' This will also delete all files inside.' : ''
-      }`
-    );
-    if (!confirm) return;
-
+  // Handle file delete
+  const handleDeleteFile = async (file: ProjectFile) => {
     try {
       await apiClient.files.delete(projectId, file.id);
 
-      // Remove from local state
-      const newFiles = files.filter((f) => f.id !== file.id && f.parentId !== file.id);
-      setFiles(newFiles);
-      setFileTree(buildFileTree(newFiles));
+      // Close tab if file is open
+      await handleTabClose(file.id);
 
-      // Clear selection if deleted file was selected
-      if (selectedFile?.id === file.id) {
-        setSelectedFile(null);
-        setFileContent('');
-        setHasUnsavedChanges(false);
-      }
-
+      fetchFiles();
       toast({
         title: 'Deleted',
-        description: `${file.name} has been deleted.`,
+        description: `${file.name} deleted successfully`,
       });
-    } catch (err) {
-      console.error('Failed to delete file:', err);
+    } catch (error) {
+      console.error('Failed to delete file:', error);
       toast({
         title: 'Error',
-        description: 'Failed to delete file.',
+        description: 'Failed to delete file',
         variant: 'destructive',
       });
     }
   };
 
-  // Get MIME type from filename
-  const getMimeType = (filename: string): string => {
-    const ext = filename.split('.').pop()?.toLowerCase();
-    const mimeTypes: Record<string, string> = {
-      ts: 'text/typescript',
-      tsx: 'text/typescript',
-      js: 'text/javascript',
-      jsx: 'text/javascript',
-      json: 'application/json',
-      html: 'text/html',
-      css: 'text/css',
-      md: 'text/markdown',
-      txt: 'text/plain',
-    };
-    return mimeTypes[ext || ''] || 'text/plain';
-  };
+  // Handle file move
+  const handleMoveFile = async (fileId: string, targetFolderId: string | null) => {
+    try {
+      const file = files.find((f) => f.id === fileId);
+      if (!file) return;
 
-  // Chat handlers
-  const handleSendMessage = () => {
-    if (chatInput.trim()) {
-      sendMessage(chatInput);
-      setChatInput('');
+      await apiClient.files.update(projectId, fileId, {
+        parentId: targetFolderId,
+      });
+      fetchFiles();
+      toast({
+        title: 'Moved',
+        description: `${file.name} moved successfully`,
+      });
+    } catch (error) {
+      console.error('Failed to move file:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to move file',
+        variant: 'destructive',
+      });
     }
   };
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSendMessage();
+  // Select file by path (used by builder code generation)
+  const selectFileByPath = useCallback(async (filePath: string) => {
+    // First refresh files to get the latest list (including newly generated files)
+    const projectFiles = await apiClient.files.getAll(projectId);
+    setFiles(projectFiles);
+    setFileTree(buildFileTree(projectFiles));
+
+    // Find file by path
+    const file = projectFiles.find((f) => f.path === filePath);
+    if (file) {
+      // Select the file
+      await handleFileSelect(file);
+    } else {
+      toast({
+        title: 'File Not Found',
+        description: `Could not find file: ${filePath}`,
+        variant: 'destructive',
+      });
     }
-  };
+  }, [projectId, toast]);
+
+  // Handle code generation complete from builder
+  const handleGenerateComplete = useCallback(async (result: { code: string; filePath: string }) => {
+    // Switch to editor view
+    setActiveView('editor');
+
+    // Select the generated file after a small delay to allow view switch
+    setTimeout(() => {
+      selectFileByPath(result.filePath);
+    }, 100);
+  }, [selectFileByPath]);
+
+  // Handle accepting an incoming call
+  const handleAcceptCall = useCallback((callId: string, type: 'VOICE' | 'VIDEO') => {
+    setAcceptedCallInfo({ callId, type });
+    setShowVideoCall(true);
+  }, []);
 
   if (isLoading) {
     return (
@@ -537,524 +571,280 @@ export default function WorkspacePage() {
   return (
     <AuthGuard>
       <TooltipProvider>
-        <div className="flex h-screen flex-col overflow-hidden bg-background">
-          {/* Top Bar */}
-          <header className="flex h-12 items-center justify-between border-b px-4">
-            <div className="flex items-center gap-4">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button variant="ghost" size="icon" asChild>
-                    <Link href="/dashboard">
-                      <ArrowLeft className="h-4 w-4" />
-                    </Link>
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Back to Dashboard</TooltipContent>
-              </Tooltip>
+        <WorkspaceLayout
+          topBar={
+            <header className="flex h-12 items-center justify-between border-b px-4">
+              <div className="flex items-center gap-4">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button variant="ghost" size="icon" asChild>
+                      <Link href="/dashboard">
+                        <ArrowLeft className="h-4 w-4" />
+                      </Link>
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Back to Dashboard</TooltipContent>
+                </Tooltip>
 
-              <Separator orientation="vertical" className="h-6" />
+                <Separator orientation="vertical" className="h-6" />
+
+                <div className="flex items-center gap-2">
+                  <div className="h-6 w-6 rounded bg-primary flex items-center justify-center">
+                    <Code2 className="h-4 w-4 text-primary-foreground" />
+                  </div>
+                  <span className="font-semibold">{currentProject.name}</span>
+                  <Badge variant="secondary" className="text-xs">
+                    {currentProject.members?.length || 0} members
+                  </Badge>
+                </div>
+              </div>
 
               <div className="flex items-center gap-2">
-                <div className="h-6 w-6 rounded bg-primary flex items-center justify-center">
-                  <Code2 className="h-4 w-4 text-primary-foreground" />
-                </div>
-                <span className="font-semibold">{currentProject.name}</span>
-                <Badge variant="secondary" className="text-xs">
-                  {currentProject.members?.length || 0} members
-                </Badge>
-              </div>
-            </div>
+                {/* Connection Status */}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                      <Circle
+                        className={cn(
+                          'h-2 w-2 fill-current',
+                          isConnected ? 'text-green-500' : 'text-red-500'
+                        )}
+                      />
+                      <span>{isConnected ? 'Connected' : 'Disconnected'}</span>
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {isConnected
+                      ? `${presentUsers.length} user(s) online`
+                      : 'Connecting to workspace...'}
+                  </TooltipContent>
+                </Tooltip>
 
-            <div className="flex items-center gap-2">
-              {/* Connection Status */}
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                    <Circle
-                      className={cn(
-                        'h-2 w-2 fill-current',
-                        isConnected ? 'text-green-500' : 'text-red-500'
-                      )}
-                    />
-                    <span>{isConnected ? 'Connected' : 'Disconnected'}</span>
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {isConnected
-                    ? `${presentUsers.length} user(s) online`
-                    : 'Connecting to workspace...'}
-                </TooltipContent>
-              </Tooltip>
+                <Separator orientation="vertical" className="h-6" />
 
-              <Separator orientation="vertical" className="h-6" />
-
-              {/* Online Users */}
-              <div className="flex -space-x-2 mr-2">
-                {presentUsers.length > 0 ? (
-                  presentUsers.slice(0, 5).map((pUser) => (
-                    <Tooltip key={pUser.id}>
-                      <TooltipTrigger asChild>
-                        <Avatar className="h-7 w-7 border-2 border-background">
-                          <AvatarImage src={pUser.image || undefined} />
-                          <AvatarFallback className="text-xs">
-                            {pUser.firstName?.[0]?.toUpperCase() ||
-                              pUser.email?.[0]?.toUpperCase() ||
-                              'U'}
-                          </AvatarFallback>
-                        </Avatar>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        {pUser.firstName || pUser.email}
-                      </TooltipContent>
-                    </Tooltip>
-                  ))
-                ) : (
-                  <Avatar className="h-7 w-7 border-2 border-background">
-                    <AvatarFallback className="text-xs">
-                      {user?.name?.[0]?.toUpperCase() || 'U'}
-                    </AvatarFallback>
-                  </Avatar>
-                )}
-                {presentUsers.length > 5 && (
-                  <div className="flex h-7 w-7 items-center justify-center rounded-full border-2 border-background bg-muted text-xs font-medium">
-                    +{presentUsers.length - 5}
-                  </div>
-                )}
-              </div>
-
-              <Separator orientation="vertical" className="h-6" />
-
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={handleSave}
-                    disabled={!selectedFile || !hasUnsavedChanges || isSaving}
-                  >
-                    {isSaving ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Save className={cn('h-4 w-4', hasUnsavedChanges && 'text-yellow-500')} />
-                    )}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Save (Ctrl+S)</TooltipContent>
-              </Tooltip>
-
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button variant="ghost" size="icon">
-                    <Play className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Run</TooltipContent>
-              </Tooltip>
-
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button variant="ghost" size="icon">
-                    <Video className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Start Video Call</TooltipContent>
-              </Tooltip>
-
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon">
-                    <MoreVertical className="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem asChild>
-                    <Link href={`/workspace/${projectId}/settings`}>
-                      <Settings className="mr-2 h-4 w-4" />
-                      Project Settings
-                    </Link>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={fetchFiles}>
-                    <RefreshCw className="mr-2 h-4 w-4" />
-                    Refresh Files
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          </header>
-
-          {/* Main Content */}
-          <div className="flex flex-1 overflow-hidden">
-            {/* Sidebar */}
-            <div
-              className={cn(
-                'flex flex-col border-r bg-muted/30 transition-all duration-300',
-                isSidebarOpen ? 'w-64' : 'w-12'
-              )}
-            >
-              {/* Sidebar Toggle & Tabs */}
-              <div className="flex h-10 items-center justify-between border-b px-2">
-                {isSidebarOpen && (
-                  <div className="flex gap-1">
-                    <Button
-                      variant={activeTab === 'files' ? 'secondary' : 'ghost'}
-                      size="sm"
-                      className="h-7 px-2"
-                      onClick={() => setActiveTab('files')}
-                    >
-                      <FolderTree className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant={activeTab === 'board' ? 'secondary' : 'ghost'}
-                      size="sm"
-                      className="h-7 px-2"
-                      onClick={() => setActiveTab('board')}
-                    >
-                      <LayoutGrid className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant={activeTab === 'chat' ? 'secondary' : 'ghost'}
-                      size="sm"
-                      className="h-7 px-2"
-                      onClick={() => setActiveTab('chat')}
-                    >
-                      <MessageSquare className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant={activeTab === 'users' ? 'secondary' : 'ghost'}
-                      size="sm"
-                      className="h-7 px-2"
-                      onClick={() => setActiveTab('users')}
-                    >
-                      <Users className="h-4 w-4" />
-                    </Button>
-                  </div>
-                )}
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7"
-                  onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-                >
-                  {isSidebarOpen ? (
-                    <PanelLeftClose className="h-4 w-4" />
+                {/* Online Users */}
+                <div className="flex -space-x-2 mr-2">
+                  {presentUsers.length > 0 ? (
+                    presentUsers.slice(0, 5).map((pUser) => (
+                      <Tooltip key={pUser.id}>
+                        <TooltipTrigger asChild>
+                          <Avatar className="h-7 w-7 border-2 border-background">
+                            <AvatarImage src={pUser.image || undefined} />
+                            <AvatarFallback className="text-xs">
+                              {pUser.firstName?.[0]?.toUpperCase() ||
+                                pUser.email?.[0]?.toUpperCase() ||
+                                'U'}
+                            </AvatarFallback>
+                          </Avatar>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          {pUser.firstName || pUser.email}
+                        </TooltipContent>
+                      </Tooltip>
+                    ))
                   ) : (
-                    <PanelLeft className="h-4 w-4" />
+                    <Avatar className="h-7 w-7 border-2 border-background">
+                      <AvatarFallback className="text-xs">
+                        {user?.name?.[0]?.toUpperCase() || 'U'}
+                      </AvatarFallback>
+                    </Avatar>
                   )}
-                </Button>
-              </div>
-
-              {/* Sidebar Content */}
-              {isSidebarOpen && (
-                <div className="flex-1 overflow-auto p-2">
-                  {activeTab === 'files' && (
-                    <div className="space-y-1">
-                      <div className="flex items-center justify-between px-2 mb-2">
-                        <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                          Files
-                        </h3>
-                        <div className="flex gap-1">
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-6 w-6"
-                                onClick={() => setIsNewFileDialogOpen(true)}
-                              >
-                                <File className="h-3 w-3" />
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>New File</TooltipContent>
-                          </Tooltip>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-6 w-6"
-                                onClick={() => setIsNewFolderDialogOpen(true)}
-                              >
-                                <Folder className="h-3 w-3" />
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>New Folder</TooltipContent>
-                          </Tooltip>
-                        </div>
-                      </div>
-
-                      {isFilesLoading ? (
-                        <div className="flex items-center justify-center py-8">
-                          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-                        </div>
-                      ) : fileTree.length === 0 ? (
-                        <div className="text-center py-8">
-                          <FolderTree className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
-                          <p className="text-sm text-muted-foreground">No files yet</p>
-                          <Button
-                            variant="link"
-                            size="sm"
-                            onClick={() => setIsNewFileDialogOpen(true)}
-                          >
-                            Create your first file
-                          </Button>
-                        </div>
-                      ) : (
-                        fileTree.map((file) => (
-                          <FileTreeItem
-                            key={file.id}
-                            file={file}
-                            selectedFileId={selectedFile?.id || null}
-                            onSelect={handleFileSelect}
-                            onDelete={handleDelete}
-                          />
-                        ))
-                      )}
-                    </div>
-                  )}
-
-                  {activeTab === 'chat' && (
-                    <div className="flex flex-col h-full">
-                      <h3 className="px-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-                        Team Chat
-                      </h3>
-                      {/* Chat Messages */}
-                      <div
-                        ref={chatContainerRef}
-                        className="flex-1 overflow-auto space-y-2 px-2"
-                      >
-                        {messages.length === 0 ? (
-                          <div className="flex-1 flex items-center justify-center text-center p-4">
-                            <div>
-                              <MessageSquare className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
-                              <p className="text-sm text-muted-foreground">
-                                No messages yet. Start the conversation!
-                              </p>
-                            </div>
-                          </div>
-                        ) : (
-                          messages.map((msg) => (
-                            <div
-                              key={msg.id}
-                              className={cn(
-                                'p-2 rounded-lg text-sm',
-                                msg.userId === user?.id
-                                  ? 'bg-primary text-primary-foreground ml-4'
-                                  : 'bg-muted mr-4'
-                              )}
-                            >
-                              <div className="font-medium text-xs opacity-70 mb-1">
-                                {msg.userName}
-                              </div>
-                              <div>{msg.content}</div>
-                            </div>
-                          ))
-                        )}
-                      </div>
-                      {/* Chat Input */}
-                      <div className="p-2 border-t">
-                        <div className="flex gap-2">
-                          <Input
-                            placeholder="Type a message..."
-                            value={chatInput}
-                            onChange={(e) => setChatInput(e.target.value)}
-                            onKeyDown={handleKeyPress}
-                            className="text-sm"
-                            disabled={!isConnected}
-                          />
-                          <Button
-                            size="icon"
-                            onClick={handleSendMessage}
-                            disabled={!isConnected || !chatInput.trim()}
-                          >
-                            <Send className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {activeTab === 'board' && (
-                    <div>
-                      <h3 className="px-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-                        Kanban Board
-                      </h3>
-                      <p className="px-2 text-xs text-muted-foreground">
-                        Manage tasks and track progress using the board view in the main area.
-                      </p>
-                    </div>
-                  )}
-
-                  {activeTab === 'users' && (
-                    <div>
-                      <h3 className="px-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-                        Online Now ({presentUsers.length})
-                      </h3>
-                      <div className="space-y-2 mb-4">
-                        {presentUsers.map((pUser) => (
-                          <div
-                            key={pUser.id}
-                            className="flex items-center gap-2 px-2 py-1 rounded hover:bg-accent"
-                          >
-                            <Avatar className="h-7 w-7">
-                              <AvatarImage src={pUser.image || undefined} />
-                              <AvatarFallback className="text-xs">
-                                {pUser.firstName?.[0]?.toUpperCase() ||
-                                  pUser.email?.[0]?.toUpperCase() ||
-                                  'U'}
-                              </AvatarFallback>
-                            </Avatar>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm truncate">
-                                {pUser.firstName
-                                  ? `${pUser.firstName} ${pUser.lastName || ''}`
-                                  : pUser.email}
-                              </p>
-                              <p className="text-xs text-muted-foreground">Online</p>
-                            </div>
-                            <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
-                          </div>
-                        ))}
-                        {presentUsers.length === 0 && (
-                          <p className="text-xs text-muted-foreground px-2">
-                            {isConnected ? 'No other users online' : 'Connecting...'}
-                          </p>
-                        )}
-                      </div>
-                      <h3 className="px-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-                        Team Members
-                      </h3>
-                      <div className="space-y-2">
-                        {currentProject.members?.map((member) => {
-                          const isOnline = presentUsers.some((p) => p.id === member.userId);
-                          const displayName = member.user?.firstName
-                            ? `${member.user.firstName} ${member.user.lastName || ''}`.trim()
-                            : member.user?.username || member.user?.email || 'Unknown';
-                          return (
-                            <div
-                              key={member.id}
-                              className="flex items-center gap-2 px-2 py-1 rounded hover:bg-accent"
-                            >
-                              <Avatar className="h-7 w-7">
-                                <AvatarImage src={member.user?.image || undefined} />
-                                <AvatarFallback className="text-xs">
-                                  {member.user?.firstName?.[0]?.toUpperCase() ||
-                                    member.user?.email?.[0]?.toUpperCase() ||
-                                    'U'}
-                                </AvatarFallback>
-                              </Avatar>
-                              <div className="flex-1 min-w-0">
-                                <p className="text-sm truncate">{displayName}</p>
-                                <p className="text-xs text-muted-foreground">{member.role}</p>
-                              </div>
-                              <div
-                                className={cn(
-                                  'h-2 w-2 rounded-full',
-                                  isOnline ? 'bg-green-500' : 'bg-gray-400'
-                                )}
-                              />
-                            </div>
-                          );
-                        })}
-                      </div>
+                  {presentUsers.length > 5 && (
+                    <div className="flex h-7 w-7 items-center justify-center rounded-full border-2 border-background bg-muted text-xs font-medium">
+                      +{presentUsers.length - 5}
                     </div>
                   )}
                 </div>
-              )}
-            </div>
 
-            {/* Main Content Area */}
-            <div className="flex-1 flex flex-col overflow-hidden">
-              {activeTab === 'board' ? (
-                /* Kanban Board View */
+                <Separator orientation="vertical" className="h-6" />
+
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={handleSave}
+                      disabled={!selectedFile || !hasUnsavedChanges || isSaving}
+                    >
+                      {isSaving ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Save className={cn('h-4 w-4', hasUnsavedChanges && 'text-yellow-500')} />
+                      )}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Save (Ctrl+S)</TooltipContent>
+                </Tooltip>
+
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant={isPanelOpen ? 'secondary' : 'ghost'}
+                      size="icon"
+                      onClick={togglePanel}
+                    >
+                      <Terminal className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Toggle Terminal (Ctrl+`)</TooltipContent>
+                </Tooltip>
+
+                {/* View Toggle Buttons */}
+                <div className="flex items-center border rounded-md">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant={activeView === 'editor' ? 'secondary' : 'ghost'}
+                        size="icon"
+                        className="rounded-r-none h-8 w-8"
+                        onClick={() => setActiveView('editor')}
+                      >
+                        <Code2 className="h-4 w-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Code Editor</TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant={activeView === 'board' ? 'secondary' : 'ghost'}
+                        size="icon"
+                        className="rounded-none h-8 w-8"
+                        onClick={() => setActiveView('board')}
+                      >
+                        <LayoutGrid className="h-4 w-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Kanban Board</TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant={activeView === 'builder' ? 'secondary' : 'ghost'}
+                        size="icon"
+                        className="rounded-l-none h-8 w-8"
+                        onClick={() => setActiveView('builder')}
+                      >
+                        <Palette className="h-4 w-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Website Builder</TooltipContent>
+                  </Tooltip>
+                </div>
+
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon">
+                      <MoreVertical className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem asChild>
+                      <Link href={`/workspace/${projectId}/settings`}>
+                        <Settings className="mr-2 h-4 w-4" />
+                        Project Settings
+                      </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={fetchFiles}>
+                      <RefreshCw className="mr-2 h-4 w-4" />
+                      Refresh Files
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            </header>
+          }
+          leftSidebar={
+            <LeftSidebar
+              isOpen={isLeftSidebarOpen}
+              onToggle={() => setIsLeftSidebarOpen(!isLeftSidebarOpen)}
+              files={files}
+              fileTree={fileTree}
+              selectedFileId={selectedFile?.id || null}
+              selectedFolderId={selectedFolderId}
+              isFilesLoading={isFilesLoading}
+              onFileSelect={handleFileSelect}
+              onFolderSelect={(folderId) => setSelectedFolderId(folderId)}
+              onFileDelete={handleDeleteFile}
+              onMoveFile={handleMoveFile}
+              onNewFile={() => setIsNewFileDialogOpen(true)}
+              onNewFolder={() => setIsNewFolderDialogOpen(true)}
+            />
+          }
+          rightSidebar={
+            <RightSidebar
+              isOpen={isRightSidebarOpen}
+              onToggle={() => setIsRightSidebarOpen(!isRightSidebarOpen)}
+              projectMembers={currentProject.members || []}
+              presentUsers={presentUsers}
+              onStartVideoCall={() => setShowVideoCall(true)}
+            />
+          }
+        >
+          {/* Main Content Area with Terminal at Bottom */}
+          <div className="relative flex flex-col h-full overflow-hidden">
+            {/* Main views - Scrollable content area */}
+            <div
+              className="flex-1 overflow-auto transition-all duration-200"
+              style={{ paddingBottom: isPanelOpen ? `${panelHeight}px` : 0 }}
+            >
+              {activeView === 'board' ? (
                 <KanbanBoard
                   projectId={projectId}
                   members={currentProject.members || []}
                 />
+              ) : activeView === 'builder' ? (
+                <BuilderView
+                  projectId={projectId}
+                  onGenerateComplete={handleGenerateComplete}
+                />
               ) : (
-                /* Editor View */
-                <>
+                <div className="flex flex-col h-full">
                   {/* Editor Tabs */}
-                  <div className="flex h-9 items-center border-b bg-muted/30 px-2 gap-1">
-                    {selectedFile ? (
-                      <div className="flex items-center gap-1 px-3 py-1 bg-background rounded-t border border-b-0 text-sm">
-                        <FileCode className="h-3.5 w-3.5 text-blue-500" />
-                        <span>{selectedFile.name}</span>
-                        {hasUnsavedChanges && <span className="text-yellow-500">●</span>}
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-4 w-4 ml-1"
-                          onClick={() => {
-                            setSelectedFile(null);
-                            setFileContent('');
-                            setHasUnsavedChanges(false);
-                          }}
-                        >
-                          <X className="h-3 w-3" />
-                        </Button>
-                      </div>
-                    ) : (
-                      <span className="text-sm text-muted-foreground px-3">No file selected</span>
-                    )}
-                  </div>
+                  <EditorTabs
+                    tabs={openTabs}
+                    activeTabId={activeTabId}
+                    onTabClick={handleTabClick}
+                    onTabClose={handleTabClose}
+                  />
 
-                  {/* Editor Content */}
-                  <div className="flex-1 overflow-hidden bg-[#1e1e1e]">
+                  {/* Editor */}
+                  <div className="flex-1 min-h-0">
                     {selectedFile ? (
                       <CodeEditor
+                        value={fileContent}
+                        onChange={handleContentChange}
                         filename={selectedFile.name}
                         fileId={selectedFile.id}
                         projectId={projectId}
-                        value={fileContent}
-                        onChange={handleContentChange}
                         onSave={handleSave}
                         className="h-full"
-                        collaborative={true}
                       />
                     ) : (
-                      <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
-                        <Code2 className="h-16 w-16 mb-4 opacity-50" />
-                        <p className="text-lg font-medium">Welcome to {currentProject.name}</p>
-                        <p className="text-sm mt-2">Select a file from the sidebar to start editing</p>
-                        <div className="flex gap-2 mt-4">
-                          <Button variant="outline" size="sm" onClick={() => setIsNewFileDialogOpen(true)}>
-                            <Plus className="h-4 w-4 mr-2" />
-                            New File
-                          </Button>
+                      <div className="flex h-full items-center justify-center text-center p-8">
+                        <div>
+                          <FileCode className="h-16 w-16 mx-auto text-muted-foreground mb-4" />
+                          <h3 className="text-lg font-semibold mb-2">No File Selected</h3>
+                          <p className="text-sm text-muted-foreground">
+                            Select a file from the sidebar to start editing
+                          </p>
                         </div>
                       </div>
                     )}
                   </div>
-                </>
+                </div>
               )}
+            </div>
 
-              {/* Status Bar */}
-              <div className="flex h-6 items-center justify-between border-t bg-muted/50 px-4 text-xs text-muted-foreground">
-                <div className="flex items-center gap-4">
-                  {selectedFile && (
-                    <>
-                      <span>{selectedFile.mimeType || 'text/plain'}</span>
-                      <span>UTF-8</span>
-                      <span>LF</span>
-                    </>
-                  )}
-                </div>
-                <div className="flex items-center gap-4">
-                  {selectedFile && <span>{fileContent.split('\n').length} lines</span>}
-                  <span className="flex items-center gap-1">
-                    <div
-                      className={cn(
-                        'h-2 w-2 rounded-full',
-                        isConnected ? 'bg-green-500' : 'bg-red-500'
-                      )}
-                    />
-                    {isConnected ? 'Connected' : 'Disconnected'}
-                  </span>
-                </div>
-              </div>
+            {/* Terminal Panel - Fixed at bottom */}
+            <div className="absolute bottom-0 left-0 right-0 z-10">
+              <TerminalPanel
+                projectId={projectId}
+                onFilesChanged={fetchFiles}
+              />
             </div>
           </div>
-        </div>
+        </WorkspaceLayout>
 
         {/* New File Dialog */}
         <Dialog open={isNewFileDialogOpen} onOpenChange={setIsNewFileDialogOpen}>
@@ -1063,6 +853,11 @@ export default function WorkspacePage() {
               <DialogTitle>Create New File</DialogTitle>
               <DialogDescription>
                 Enter a name for your new file. Include the extension (e.g., index.ts)
+                {selectedFolderId && (
+                  <span className="block mt-1 text-primary font-medium">
+                    Creating in: {files.find((f) => f.id === selectedFolderId)?.name || 'Unknown folder'}
+                  </span>
+                )}
               </DialogDescription>
             </DialogHeader>
             <Input
@@ -1090,6 +885,11 @@ export default function WorkspacePage() {
               <DialogTitle>Create New Folder</DialogTitle>
               <DialogDescription>
                 Enter a name for your new folder.
+                {selectedFolderId && (
+                  <span className="block mt-1 text-primary font-medium">
+                    Creating in: {files.find((f) => f.id === selectedFolderId)?.name || 'Unknown folder'}
+                  </span>
+                )}
               </DialogDescription>
             </DialogHeader>
             <Input
@@ -1109,6 +909,21 @@ export default function WorkspacePage() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        {/* Always-mounted Incoming Call Dialog */}
+        <IncomingCallDialog onAccept={handleAcceptCall} />
+
+        {/* Video Call Component */}
+        {showVideoCall && (
+          <VideoCall
+            projectId={projectId}
+            acceptedCallInfo={acceptedCallInfo}
+            onClose={() => {
+              setShowVideoCall(false);
+              setAcceptedCallInfo(null);
+            }}
+          />
+        )}
       </TooltipProvider>
     </AuthGuard>
   );

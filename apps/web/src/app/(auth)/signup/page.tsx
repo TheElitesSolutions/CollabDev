@@ -14,6 +14,7 @@ export default function SignupPage() {
   const router = useRouter();
 
   const [name, setName] = useState('');
+  const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -27,8 +28,10 @@ export default function SignupPage() {
 
     // Sanitize and validate inputs
     const trimmedName = name.trim().replace(/[<>]/g, '');
+    const trimmedUsername = username.trim().toLowerCase();
     const trimmedEmail = email.trim();
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const usernameRegex = /^[a-zA-Z](?!.*[._]{2})[a-zA-Z0-9._]{2,29}(?<![._])$/;
 
     // Name validation
     if (!trimmedName) {
@@ -43,6 +46,17 @@ export default function SignupPage() {
 
     if (trimmedName.length > 100) {
       setError('Name must be less than 100 characters');
+      return;
+    }
+
+    // Username validation
+    if (!trimmedUsername) {
+      setError('Username is required');
+      return;
+    }
+
+    if (!usernameRegex.test(trimmedUsername)) {
+      setError('Username must start with a letter, be 3-30 characters, and can only contain letters, numbers, underscores, and periods');
       return;
     }
 
@@ -81,7 +95,7 @@ export default function SignupPage() {
     setIsSubmitting(true);
 
     try {
-      await apiClient.auth.signup(trimmedEmail, password, trimmedName);
+      await apiClient.auth.signup(trimmedEmail, password, trimmedName, trimmedUsername);
       setSuccess(true);
       // Redirect to login after 2 seconds
       setTimeout(() => {
@@ -141,6 +155,22 @@ export default function SignupPage() {
                 required
                 disabled={isSubmitting}
               />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="username">Username</Label>
+              <Input
+                id="username"
+                type="text"
+                placeholder="johndoe"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                required
+                disabled={isSubmitting}
+              />
+              <p className="text-xs text-muted-foreground">
+                3-30 characters, letters, numbers, underscores, and periods only
+              </p>
             </div>
 
             <div className="space-y-2">
