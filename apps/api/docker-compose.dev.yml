@@ -1,0 +1,89 @@
+services:
+  # server:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile.dev
+  #   volumes:
+  #     - /app/node_modules
+  #     - .:/app
+  #   depends_on:
+  #     - database
+  #     - redis
+  #     - mail
+  #   command: >
+  #     sh -c "pnpm start:dev"
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    volumes:
+      - /app/node_modules
+      - .:/app
+    depends_on:
+      - database
+      - redis
+    command: >
+      sh -c "pnpm start:dev"
+
+  database:
+    image: postgres:16
+    container_name: nestjs-boilerplate-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: '${DATABASE_USERNAME}'
+      POSTGRES_PASSWORD: '${DATABASE_PASSWORD}'
+      POSTGRES_DB: '${DATABASE_NAME}'
+      TZ: 'UTC'
+    ports:
+      - '${DOCKER_DATABASE_PORT}:5432'
+    volumes:
+      - ./.docker/postgres_data:/var/lib/postgresql/data
+    networks:
+      - nestjs-boilerplate-network
+
+  mail:
+    image: axllent/mailpit:v1.25
+    container_name: nestjs-boilerplate-mail
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    ports:
+      - ${DOCKER_MAIL_PORT}:1025
+      - ${DOCKER_MAIL_CLIENT_PORT}:8025
+    networks:
+      - nestjs-boilerplate-network
+
+  neo4j:
+    image: neo4j:5.26-community
+    container_name: collabdev-neo4j
+    restart: unless-stopped
+    environment:
+      NEO4J_AUTH: '${NEO4J_USERNAME}/${NEO4J_PASSWORD}'
+      NEO4J_PLUGINS: '["apoc"]'
+      NEO4J_dbms_security_procedures_unrestricted: 'apoc.*'
+    ports:
+      - '${DOCKER_NEO4J_BOLT_PORT}:7687'
+      - '${DOCKER_NEO4J_HTTP_PORT}:7474'
+    volumes:
+      - ./.docker/neo4j_data:/data
+      - ./.docker/neo4j_logs:/logs
+    networks:
+      - nestjs-boilerplate-network
+
+  minio:
+    image: minio/minio:RELEASE.2024-12-18T13-15-44Z
+    container_name: collabdev-minio
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: '${MINIO_ROOT_USER}'
+      MINIO_ROOT_PASSWORD: '${MINIO_ROOT_PASSWORD}'
+    ports:
+      - '${DOCKER_MINIO_PORT}:9000'
+      - '${DOCKER_MINIO_CONSOLE_PORT}:9001'
+    volumes:
+      - ./.docker/minio_data:/data
+    command: server /data --console-address ":9001"
+    networks:
+      - nestjs-boilerplate-network

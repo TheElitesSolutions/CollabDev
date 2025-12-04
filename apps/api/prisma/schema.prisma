@@ -1,0 +1,535 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+    provider      = "prisma-client-js"
+    binaryTargets = ["native", "debian-openssl-3.0.x", "linux-arm64-openssl-3.0.x"]
+}
+
+datasource db {
+    provider = "postgresql"
+    url      = env("DATABASE_URL")
+}
+
+enum Role {
+    User
+    Admin
+}
+
+enum ProjectRole {
+    OWNER       // Full control, can delete project
+    MAINTAINER  // Can manage members and settings
+    MEMBER      // Can view and participate
+}
+
+enum TaskStatus {
+    TODO
+    IN_PROGRESS
+    DONE
+}
+
+enum TaskPriority {
+    LOW
+    MEDIUM
+    HIGH
+    URGENT
+}
+
+// Base model fields
+model User {
+    id        String    @id @default(cuid())
+    createdAt DateTime  @default(now())
+    updatedAt DateTime  @updatedAt
+    deletedAt DateTime?
+
+    // User specific fields
+    username         String  @unique
+    displayUsername  String?
+    email            String  @unique
+    isEmailVerified  Boolean @default(false)
+    role             Role    @default(User)
+    firstName        String?
+    lastName         String?
+    image            String?
+    bio              String?
+    twoFactorEnabled Boolean @default(false)
+
+    // Relations
+    accounts   Account[]
+    sessions   Session[]
+    passkeys   Passkey[]
+    twoFactors TwoFactor[]
+
+    // Project relations
+    createdProjects    Project[]        @relation("CreatedProjects")
+    projectMemberships ProjectMember[]  @relation("ProjectMemberships")
+
+    // Created/Updated by relations
+    createdFiles File[] @relation("CreatedFiles")
+    updatedFiles File[] @relation("UpdatedFiles")
+    deletedFiles File[] @relation("DeletedFiles")
+
+    // Project file relations
+    lastEditedFiles ProjectFile[] @relation("LastEditedFiles")
+
+    // Task relations
+    assignedTasks Task[] @relation("AssignedTasks")
+    createdTasks  Task[] @relation("CreatedTasks")
+
+    // Chat relations
+    conversationParticipants ConversationParticipant[] @relation("ConversationParticipants")
+    sentMessages             Message[]                  @relation("SentMessages")
+
+    // Call relations
+    initiatedCalls   Call[]            @relation("InitiatedCalls")
+    callParticipants CallParticipant[] @relation("CallParticipants")
+
+    @@map("user")
+}
+
+model Account {
+    id        String    @id @default(cuid())
+    createdAt DateTime  @default(now())
+    updatedAt DateTime  @updatedAt
+    deletedAt DateTime?
+
+    userId String
+    user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+    accountId             String
+    providerId            String // 'credential' in better-auth
+    accessToken           String?
+    refreshToken          String?
+    accessTokenExpiresAt  DateTime?
+    refreshTokenExpiresAt DateTime?
+    scope                 String?
+    idToken               String?
+    password              String?
+
+    @@map("account")
+}
+
+model Session {
+    id        String    @id @default(cuid())
+    createdAt DateTime  @default(now())
+    updatedAt DateTime  @updatedAt
+    deletedAt DateTime?
+
+    userId String
+    user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+    token     String
+    expiresAt DateTime
+    ipAddress String?
+    userAgent String?
+
+    @@map("session")
+}
+
+model Verification {
+    id        String    @id @default(cuid())
+    createdAt DateTime  @default(now())
+    updatedAt DateTime  @updatedAt
+    deletedAt DateTime?
+
+    identifier String
+    value      String
+    expiresAt  DateTime
+
+    @@map("verification")
+}
+
+model Passkey {
+    id        String    @id @default(cuid())
+    createdAt DateTime  @default(now())
+    updatedAt DateTime  @updatedAt
+    deletedAt DateTime?
+
+    name   String?
+    userId String
+    user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+    publicKey    String
+    credentialID String
+    counter      Int
+    deviceType   String
+    backedUp     String
+    transports   String
+
+    @@map("passkey")
+}
+
+model TwoFactor {
+    id        String    @id @default(cuid())
+    createdAt DateTime  @default(now())
+    updatedAt DateTime  @updatedAt
+    deletedAt DateTime?
+
+    userId String
+    user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+    secret      String?
+    backupCodes String?
+
+    @@map("twoFactor")
+}
+
+// Example of converting a CreatorModel entity
+model File {
+    id        String    @id @default(cuid())
+    createdAt DateTime  @default(now())
+    updatedAt DateTime  @updatedAt
+    deletedAt DateTime?
+
+    // File specific fields
+    filename     String
+    originalName String
+    mimeType     String
+    size         Int
+    path         String
+
+    // Creator model fields
+    createdByUserId String?
+    createdBy       User?   @relation("CreatedFiles", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+    updatedByUserId String?
+    updatedBy       User?   @relation("UpdatedFiles", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+
+    deletedByUserId String?
+    deletedBy       User?   @relation("DeletedFiles", fields: [deletedByUserId], references: [id], onDelete: SetNull)
+
+    @@map("file")
+}
+
+model Project {
+    id        String    @id @default(cuid())
+    createdAt DateTime  @default(now())
+    updatedAt DateTime  @updatedAt
+    deletedAt DateTime?
+
+    name        String
+    description String?
+
+    createdByUserId String
+    createdBy       User             @relation("CreatedProjects", fields: [createdByUserId], references: [id], onDelete: Cascade)
+
+    members ProjectMember[]
+    files   ProjectFile[]
+    board   Board?
+    tasks   Task[]
+
+    // Chat and Call relations
+    conversations Conversation[]
+    calls         Call[]
+
+    // Website Builder relations
+    pages Page[]
+
+    @@map("project")
+}
+
+model ProjectMember {
+    id        String      @id @default(cuid())
+    createdAt DateTime    @default(now())
+    updatedAt DateTime    @updatedAt
+    deletedAt DateTime?
+
+    role      ProjectRole @default(MEMBER)
+
+    projectId String
+    project   Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+    userId    String
+    user      User        @relation("ProjectMemberships", fields: [userId], references: [id], onDelete: Cascade)
+
+    @@unique([projectId, userId])
+    @@map("project_member")
+}
+
+model ProjectFile {
+    id        String    @id @default(cuid())
+    createdAt DateTime  @default(now())
+    updatedAt DateTime  @updatedAt
+    deletedAt DateTime?
+
+    // File path within the project (e.g., "src/index.ts")
+    path      String
+    // File name (e.g., "index.ts")
+    name      String
+    // Is this a folder?
+    isFolder  Boolean   @default(false)
+    // File content (null for folders)
+    content   String?
+    // MIME type for files
+    mimeType  String?
+
+    // Parent folder (null for root level files)
+    parentId  String?
+    parent    ProjectFile?  @relation("FileHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+    children  ProjectFile[] @relation("FileHierarchy")
+
+    // Project relation
+    projectId String
+    project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+    // Last edited by
+    lastEditedByUserId String?
+    lastEditedBy       User?   @relation("LastEditedFiles", fields: [lastEditedByUserId], references: [id], onDelete: SetNull)
+
+    // Website Builder: Pages that use this file as generated code
+    generatedForPages Page[] @relation("GeneratedFile")
+
+    @@unique([projectId, path])
+    @@map("project_file")
+}
+
+// Kanban Board Models
+model Board {
+    id        String   @id @default(cuid())
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    projectId String  @unique
+    project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+    columns Column[]
+
+    @@map("board")
+}
+
+model Column {
+    id        String   @id @default(cuid())
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    name     String
+    position Int
+
+    boardId String
+    board   Board  @relation(fields: [boardId], references: [id], onDelete: Cascade)
+
+    tasks Task[]
+
+    @@map("column")
+}
+
+model Task {
+    id        String    @id @default(cuid())
+    createdAt DateTime  @default(now())
+    updatedAt DateTime  @updatedAt
+    deletedAt DateTime?
+
+    title       String
+    description String?
+    status      TaskStatus   @default(TODO)
+    priority    TaskPriority @default(MEDIUM)
+    position    Int
+    dueDate     DateTime?
+
+    // Column relation
+    columnId String
+    column   Column @relation(fields: [columnId], references: [id], onDelete: Cascade)
+
+    // Project relation (for easy querying)
+    projectId String
+    project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+    // Assignee relation
+    assigneeId String?
+    assignee   User?   @relation("AssignedTasks", fields: [assigneeId], references: [id], onDelete: SetNull)
+
+    // Creator relation
+    createdById String
+    createdBy   User   @relation("CreatedTasks", fields: [createdById], references: [id], onDelete: Cascade)
+
+    @@map("task")
+}
+
+// ============================================
+// Chat & Messaging Models
+// ============================================
+
+enum ConversationType {
+    DIRECT  // 1:1 user-to-user chat
+    PROJECT // Project/team group chat
+    GROUP   // Custom group chat (future)
+}
+
+model Conversation {
+    id        String           @id @default(cuid())
+    createdAt DateTime         @default(now())
+    updatedAt DateTime         @updatedAt
+    deletedAt DateTime?
+
+    name      String?          // Optional name for group chats
+    type      ConversationType @default(DIRECT)
+
+    // For PROJECT type conversations
+    projectId String?
+    project   Project?         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+    // Relations
+    participants ConversationParticipant[]
+    messages     Message[]
+    calls        Call[]
+
+    @@map("conversation")
+}
+
+model ConversationParticipant {
+    id        String    @id @default(cuid())
+    createdAt DateTime  @default(now())
+    updatedAt DateTime  @updatedAt
+
+    // Last time user read messages in this conversation
+    lastReadAt DateTime?
+
+    conversationId String
+    conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+    userId String
+    user   User   @relation("ConversationParticipants", fields: [userId], references: [id], onDelete: Cascade)
+
+    @@unique([conversationId, userId])
+    @@map("conversation_participant")
+}
+
+model Message {
+    id        String    @id @default(cuid())
+    createdAt DateTime  @default(now())
+    updatedAt DateTime  @updatedAt
+    deletedAt DateTime?
+
+    content    String
+    // For file/image attachments (JSON array of URLs)
+    attachments String?
+
+    // Edit tracking
+    isEdited   Boolean   @default(false)
+    editedAt   DateTime?
+
+    // Conversation relation
+    conversationId String
+    conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+    // Sender relation
+    senderId String
+    sender   User   @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
+
+    // Reply to another message (for threads)
+    replyToId String?
+    replyTo   Message?  @relation("MessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
+    replies   Message[] @relation("MessageReplies")
+
+    @@index([conversationId, createdAt])
+    @@map("message")
+}
+
+// ============================================
+// Video/Voice Call Models
+// ============================================
+
+enum CallType {
+    VOICE
+    VIDEO
+}
+
+enum CallStatus {
+    RINGING     // Call initiated, waiting for answer
+    ONGOING     // Call in progress
+    ENDED       // Call ended normally
+    MISSED      // Call was not answered
+    DECLINED    // Call was declined
+}
+
+model Call {
+    id        String     @id @default(cuid())
+    createdAt DateTime   @default(now())
+    updatedAt DateTime   @updatedAt
+
+    type      CallType   @default(VIDEO)
+    status    CallStatus @default(RINGING)
+
+    // Call timing
+    startedAt DateTime?
+    endedAt   DateTime?
+
+    // For PROJECT type calls (group calls)
+    projectId String?
+    project   Project?   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+    // For DIRECT calls (1:1)
+    conversationId String?
+    conversation   Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+
+    // Call initiator
+    initiatorId String
+    initiator   User       @relation("InitiatedCalls", fields: [initiatorId], references: [id], onDelete: Cascade)
+
+    // Participants
+    participants CallParticipant[]
+
+    @@index([projectId, status])
+    @@map("call")
+}
+
+model CallParticipant {
+    id        String    @id @default(cuid())
+    createdAt DateTime  @default(now())
+    updatedAt DateTime  @updatedAt
+
+    // Join/leave tracking
+    joinedAt  DateTime?
+    leftAt    DateTime?
+
+    // Mute status
+    isMuted       Boolean @default(false)
+    isVideoOff    Boolean @default(false)
+    isScreenSharing Boolean @default(false)
+
+    callId String
+    call   Call   @relation(fields: [callId], references: [id], onDelete: Cascade)
+
+    userId String
+    user   User   @relation("CallParticipants", fields: [userId], references: [id], onDelete: Cascade)
+
+    @@unique([callId, userId])
+    @@map("call_participant")
+}
+
+// ============================================
+// Website Builder Models
+// ============================================
+
+model Page {
+    id        String    @id @default(cuid())
+    createdAt DateTime  @default(now())
+    updatedAt DateTime  @updatedAt
+    deletedAt DateTime?
+
+    // Page metadata
+    name        String   // Display name: "Home", "About", "Contact"
+    slug        String   // URL path: "home", "about", "contact"
+    description String?  // Optional page description
+
+    // Puck editor content (JSON structure)
+    content Json @default("{\"content\":[],\"root\":{}}")
+
+    // Page ordering in sidebar
+    position Int @default(0)
+
+    // Publishing status
+    isPublished Boolean @default(false)
+
+    // Project relation
+    projectId String
+    project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+    // Generated code file link (optional)
+    generatedFileId String?
+    generatedFile   ProjectFile? @relation("GeneratedFile", fields: [generatedFileId], references: [id], onDelete: SetNull)
+
+    @@unique([projectId, slug])
+    @@index([projectId])
+    @@map("page")
+}

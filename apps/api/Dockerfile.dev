@@ -1,0 +1,15 @@
+ARG NODE_IMAGE=node:22-slim
+
+FROM ${NODE_IMAGE} AS base
+
+RUN apt-get update && apt-get install -y procps
+
+RUN npm install -g pnpm@10.12.3
+
+FROM base AS development
+WORKDIR /app
+
+COPY package*.json pnpm-lock.yaml pnpm-workspace.yaml ./prisma ./
+
+RUN pnpm install
+RUN pnpm prisma:generate
