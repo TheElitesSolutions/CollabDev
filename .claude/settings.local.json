@@ -34,7 +34,10 @@
       "Bash(cmd /c \"taskkill /F /IM node.exe\")",
       "Bash(npx shadcn@latest add:*)",
       "Bash(powershell:*)",
-      "Bash(if exist .next rmdir /s /q .next)"
+      "Bash(if exist .next rmdir /s /q .next)",
+      "Bash(git commit:*)",
+      "Bash(git checkout:*)",
+      "Bash(git add:*)"
     ],
     "deny": [],
     "ask": [],
