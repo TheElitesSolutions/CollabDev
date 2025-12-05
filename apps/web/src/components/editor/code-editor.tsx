@@ -24,15 +24,20 @@ const Editor = dynamic(
 
 // All types defined inline to avoid importing monaco/yjs modules at SSR time
 // Using 'any' to avoid type conflicts with dynamically imported modules
-/* eslint-disable @typescript-eslint/no-explicit-any */
+// eslint-disable-next-line
 type MonacoEditorType = any;
+// eslint-disable-next-line
 type MonacoType = any;
+// eslint-disable-next-line
 type YDocType = any;
+// eslint-disable-next-line
 type YTextType = any;
+// eslint-disable-next-line
 type WebsocketProviderType = any;
+// eslint-disable-next-line
 type MonacoBindingType = any;
+// eslint-disable-next-line
 type AwarenessType = any;
-/* eslint-enable @typescript-eslint/no-explicit-any */
 
 // Map file extensions to Monaco language identifiers
 const getLanguageFromFilename = (filename: string): string => {
@@ -347,7 +352,7 @@ export function CodeEditor({
     [collaborative, onChange]
   );
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // eslint-disable-next-line
   const handleEditorDidMount = useCallback(
     (editor: any, monaco: any) => {
       editorRef.current = editor;

@@ -205,7 +205,7 @@ export function TerminalPanel({ projectId, className, onFilesChanged }: Terminal
               WebContainers Not Supported
             </h3>
             <p className="text-sm text-[#969696]">
-              Your browser doesn't support WebContainers. Please use a modern browser
+              Your browser doesn&apos;t support WebContainers. Please use a modern browser
               like Chrome, Edge, or Firefox with cross-origin isolation enabled.
             </p>
           </div>
