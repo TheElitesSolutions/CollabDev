@@ -307,11 +307,27 @@ export class YjsServerService implements OnModuleInit, OnModuleDestroy {
       case messageSync: {
         const encoder = encoding.createEncoder();
         encoding.writeVarUint(encoder, messageSync);
-        const syncMessageType = syncProtocol.readSyncMessage(decoder, encoder, doc, ws);
 
-        // If sync step 2, we have updates to apply
-        if (syncMessageType === syncProtocol.messageYjsSyncStep2) {
-          // Sync step 2 contains updates, already applied by readSyncMessage
+        // Read sync message type manually to pass WebSocket as origin
+        const syncMessageType = decoding.readVarUint(decoder);
+
+        switch (syncMessageType) {
+          case syncProtocol.messageYjsSyncStep1: {
+            // Client requests sync - send our state
+            syncProtocol.writeSyncStep2(encoder, doc);
+            break;
+          }
+          case syncProtocol.messageYjsSyncStep2: {
+            // Client sends their state - apply with ws as origin
+            syncProtocol.readSyncStep2(decoder, doc, ws);
+            break;
+          }
+          case syncProtocol.messageYjsUpdate: {
+            // Client sends update - apply with ws as origin
+            const update = decoding.readVarUint8Array(decoder);
+            Y.applyUpdate(doc, update, ws);
+            break;
+          }
         }
 
         if (encoding.length(encoder) > 1) {
@@ -322,6 +338,7 @@ export class YjsServerService implements OnModuleInit, OnModuleDestroy {
 
       case messageAwareness: {
         const update = decoding.readVarUint8Array(decoder);
+        // Already passing ws as origin - this is correct
         awarenessProtocol.applyAwarenessUpdate(awareness, update, ws);
 
         // Track awareness client IDs for this connection
@@ -483,5 +500,23 @@ export class YjsServerService implements OnModuleInit, OnModuleDestroy {
       this.logger.error(`Failed to persist content for ${roomName}:`, error);
       throw error;
     }
+  }
+
+  /**
+   * Public method to save Yjs content (called from project service)
+   * Returns true if Yjs document was in memory and saved, false otherwise
+   */
+  async saveYjsContentPublic(roomName: string): Promise<boolean> {
+    const yjsDoc = this.documents.get(roomName);
+
+    if (yjsDoc) {
+      await this.saveYjsContentToDb(roomName, yjsDoc);
+      this.logger.log(`Public save completed for ${roomName}`);
+      return true;
+    }
+
+    // Document not in memory - caller should use fallback
+    this.logger.warn(`No Yjs document in memory for ${roomName}, fallback needed`);
+    return false;
   }
 }

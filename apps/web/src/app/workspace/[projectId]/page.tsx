@@ -55,7 +55,7 @@ import { BuilderView } from '@/components/builder';
 import { useAuthStore } from '@/store/auth.store';
 import { useProjectStore } from '@/store/project.store';
 import { useSocketStore } from '@/store/socket.store';
-import { apiClient, ProjectFile } from '@/lib/api-client';
+import { apiClient, ApiError, ProjectFile } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import { TerminalPanel } from '@/components/terminal';
@@ -295,9 +295,31 @@ export default function WorkspacePage() {
       });
     } catch (error) {
       console.error('Failed to save file:', error);
+
+      // Extract specific error message
+      let errorMessage = 'Failed to save file';
+      let errorTitle = 'Save Failed';
+
+      if (error instanceof ApiError) {
+        errorMessage = error.message;
+        // Provide specific titles based on status code
+        if (error.status === 401) {
+          errorTitle = 'Not Authenticated';
+          errorMessage = 'Please log in to save files';
+        } else if (error.status === 403) {
+          errorTitle = 'Access Denied';
+          errorMessage = 'You do not have permission to save this file';
+        } else if (error.status === 404) {
+          errorTitle = 'File Not Found';
+          errorMessage = 'The file could not be found. It may have been deleted.';
+        }
+      } else if (error instanceof Error) {
+        errorMessage = error.message || errorMessage;
+      }
+
       toast({
-        title: 'Error',
-        description: 'Failed to save file',
+        title: errorTitle,
+        description: `${selectedFile.name}: ${errorMessage}`,
         variant: 'destructive',
       });
     } finally {

@@ -994,15 +994,49 @@ A collaborative project built with CollabDev+.
 
   /**
    * Save Yjs content for a file to the database
+   * Uses public method with fallback for when Yjs connection is not active
    */
-  async saveYjsContent(projectId: string, fileId: string): Promise<void> {
-    const roomName = `file:${projectId}:${fileId}`;
-    const yjsDoc = this.yjsService['documents'].get(roomName);
+  async saveYjsContent(
+    projectId: string,
+    fileId: string,
+    userId: string,
+  ): Promise<void> {
+    // Verify user has access to the project
+    const membership = await this.prisma.projectMember.findFirst({
+      where: {
+        projectId,
+        userId,
+        deletedAt: null,
+      },
+    });
 
-    if (yjsDoc) {
-      await this.yjsService['saveYjsContentToDb'](roomName, yjsDoc);
-    } else {
-      throw new NotFoundException('No active Yjs document found for this file');
+    if (!membership) {
+      throw new ForbiddenException('You do not have access to this project');
     }
+
+    const roomName = `file:${projectId}:${fileId}`;
+
+    // Try Yjs save first (if WebSocket connected and document in memory)
+    const savedViaYjs = await this.yjsService.saveYjsContentPublic(roomName);
+
+    if (savedViaYjs) {
+      return;
+    }
+
+    // Fallback: Update timestamp to indicate manual save attempt
+    // Note: Content already in database from previous auto-saves
+    const file = await this.prisma.projectFile.findUnique({
+      where: { id: fileId },
+    });
+
+    if (!file || file.projectId !== projectId) {
+      throw new NotFoundException('File not found or access denied');
+    }
+
+    // Touch updatedAt to indicate manual save checkpoint
+    await this.prisma.projectFile.update({
+      where: { id: fileId },
+      data: { updatedAt: new Date() },
+    });
   }
 }

@@ -592,6 +592,78 @@ export class SocketGateway
   }
 
   @UseGuards(AuthGuard)
+  @SubscribeMessage('call:renegotiate')
+  async handleCallRenegotiate(
+    @MessageBody()
+    data: { callId: string; targetPeerId: string; offer: RTCSessionDescriptionInit },
+    @ConnectedSocket() socket: SocketWithUserSession,
+    @CurrentUserSession('user') user: CurrentUserSession['user'],
+  ) {
+    const { callId, targetPeerId, offer } = data;
+
+    if (!targetPeerId) {
+      this.logger.error('call:renegotiate missing targetPeerId');
+      return;
+    }
+
+    this.logger.log(`ICE restart from ${user.id} to ${targetPeerId}`);
+
+    const userClients = await this.cacheService.get<string[]>({
+      key: 'UserSocketClients',
+      args: [targetPeerId],
+    });
+
+    if (userClients) {
+      for (const clientId of userClients) {
+        const clientSocket = this.clients.get(clientId);
+        if (clientSocket) {
+          clientSocket.emit('call:renegotiate', {
+            callId,
+            fromPeerId: user.id,
+            offer,
+          });
+        }
+      }
+    }
+  }
+
+  @UseGuards(AuthGuard)
+  @SubscribeMessage('call:renegotiate-answer')
+  async handleCallRenegotiateAnswer(
+    @MessageBody()
+    data: { callId: string; targetPeerId: string; answer: RTCSessionDescriptionInit },
+    @ConnectedSocket() socket: SocketWithUserSession,
+    @CurrentUserSession('user') user: CurrentUserSession['user'],
+  ) {
+    const { callId, targetPeerId, answer } = data;
+
+    if (!targetPeerId) {
+      this.logger.error('call:renegotiate-answer missing targetPeerId');
+      return;
+    }
+
+    this.logger.log(`ICE restart answer from ${user.id} to ${targetPeerId}`);
+
+    const userClients = await this.cacheService.get<string[]>({
+      key: 'UserSocketClients',
+      args: [targetPeerId],
+    });
+
+    if (userClients) {
+      for (const clientId of userClients) {
+        const clientSocket = this.clients.get(clientId);
+        if (clientSocket) {
+          clientSocket.emit('call:renegotiate-answer', {
+            callId,
+            fromPeerId: user.id,
+            answer,
+          });
+        }
+      }
+    }
+  }
+
+  @UseGuards(AuthGuard)
   @SubscribeMessage('call:ice-candidate')
   async handleIceCandidate(
     @MessageBody()

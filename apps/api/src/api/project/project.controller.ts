@@ -161,8 +161,9 @@ export class ProjectController {
   async saveYjsContent(
     @Param('id') projectId: string,
     @Param('fileId') fileId: string,
+    @CurrentUserSession() session: CurrentUserSession,
   ): Promise<{ success: boolean; message: string }> {
-    await this.projectService.saveYjsContent(projectId, fileId);
+    await this.projectService.saveYjsContent(projectId, fileId, session.user.id);
     return {
       success: true,
       message: 'Yjs content saved successfully',

@@ -26,10 +26,31 @@ export interface CallState {
 
 const ICE_SERVERS: RTCConfiguration = {
   iceServers: [
+    // STUN servers (free, for NAT traversal)
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
     { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun3.l.google.com:19302' },
+    { urls: 'stun:stun4.l.google.com:19302' },
+    // Public TURN servers (fallback for restrictive NATs)
+    // OpenRelay TURN servers - free public TURN
+    {
+      urls: 'turn:openrelay.metered.ca:80',
+      username: 'openrelayproject',
+      credential: 'openrelayproject',
+    },
+    {
+      urls: 'turn:openrelay.metered.ca:443',
+      username: 'openrelayproject',
+      credential: 'openrelayproject',
+    },
+    {
+      urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+      username: 'openrelayproject',
+      credential: 'openrelayproject',
+    },
   ],
+  iceCandidatePoolSize: 10, // Gather candidates faster
 };
 
 export function useWebRTC(projectId: string | null) {
@@ -68,12 +89,29 @@ export function useWebRTC(projectId: string | null) {
     screenStreamRef.current = screenStream;
   }, [screenStream]);
 
-  // Get user media
+  // Get user media with optimized constraints
   const getMediaStream = useCallback(async (type: CallType): Promise<MediaStream | null> => {
     try {
+      // Optimized audio constraints for better call quality
+      const audioConstraints: MediaTrackConstraints = {
+        echoCancellation: true,    // Prevent echo
+        noiseSuppression: true,    // Reduce background noise
+        autoGainControl: true,     // Normalize volume levels
+        sampleRate: 48000,         // High quality audio
+        channelCount: 1,           // Mono (saves bandwidth, good for voice)
+      };
+
+      // Video constraints for optimal quality/bandwidth balance
+      const videoConstraints: MediaTrackConstraints | boolean = type === 'VIDEO' ? {
+        width: { ideal: 1280, max: 1920 },
+        height: { ideal: 720, max: 1080 },
+        frameRate: { ideal: 30, max: 30 },
+        facingMode: 'user',
+      } : false;
+
       const constraints: MediaStreamConstraints = {
-        audio: true,
-        video: type === 'VIDEO',
+        audio: audioConstraints,
+        video: videoConstraints,
       };
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       setLocalStream(stream);
@@ -110,6 +148,37 @@ export function useWebRTC(projectId: string | null) {
       console.warn('[WebRTC] No local stream available when creating peer connection!');
     }
 
+    // ICE restart handler for reconnection
+    const handleIceRestart = async (peerConnection: RTCPeerConnection, targetPeerId: string) => {
+      try {
+        // Only restart if we're the initiator or if signaling state allows
+        if (peerConnection.signalingState === 'stable' || peerConnection.signalingState === 'have-local-offer') {
+          console.log('[WebRTC] Initiating ICE restart for peer:', targetPeerId);
+
+          // Restart ICE
+          peerConnection.restartIce();
+
+          // Create new offer with ICE restart flag
+          const offer = await peerConnection.createOffer({ iceRestart: true });
+          await peerConnection.setLocalDescription(offer);
+
+          const socket = getSocket();
+          const currentState = callStateRef.current;
+          socket?.emit('call:renegotiate', {
+            projectId,
+            callId: currentState.callId,
+            targetPeerId,
+            offer: peerConnection.localDescription,
+          });
+          console.log('[WebRTC] Sent ICE restart offer to:', targetPeerId);
+        } else {
+          console.log('[WebRTC] Cannot restart ICE, signaling state:', peerConnection.signalingState);
+        }
+      } catch (err) {
+        console.error('[WebRTC] ICE restart failed:', err);
+      }
+    };
+
     // Handle incoming tracks
     pc.ontrack = (event) => {
       const [remoteStream] = event.streams;
@@ -134,12 +203,31 @@ export function useWebRTC(projectId: string | null) {
       }
     };
 
-    // Handle connection state changes
+    // Handle connection state changes with ICE restart for reconnection
     pc.onconnectionstatechange = () => {
       console.log(`[WebRTC] Connection state with ${peerId}:`, pc.connectionState);
-      if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
-        // Handle reconnection or cleanup
-        console.warn(`[WebRTC] Connection ${pc.connectionState} for peer ${peerId}`);
+      if (pc.connectionState === 'failed') {
+        console.warn(`[WebRTC] Connection failed for peer ${peerId}, attempting ICE restart...`);
+        // Attempt ICE restart
+        handleIceRestart(pc, peerId);
+      } else if (pc.connectionState === 'disconnected') {
+        console.warn(`[WebRTC] Connection disconnected for peer ${peerId}, waiting for recovery...`);
+        // Wait briefly for automatic recovery before attempting restart
+        setTimeout(() => {
+          if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
+            console.log(`[WebRTC] Connection still ${pc.connectionState}, attempting ICE restart...`);
+            handleIceRestart(pc, peerId);
+          }
+        }, 3000); // Wait 3 seconds before attempting restart
+      }
+    };
+
+    // Handle ICE connection state changes (more granular than connectionState)
+    pc.oniceconnectionstatechange = () => {
+      console.log(`[WebRTC] ICE connection state with ${peerId}:`, pc.iceConnectionState);
+      if (pc.iceConnectionState === 'failed') {
+        console.warn(`[WebRTC] ICE connection failed for peer ${peerId}, attempting restart...`);
+        handleIceRestart(pc, peerId);
       }
     };
 
@@ -532,6 +620,50 @@ export function useWebRTC(projectId: string | null) {
       }
     };
 
+    // Handle ICE restart renegotiation offer
+    const handleRenegotiate = async (data: {
+      fromPeerId: string;
+      offer: RTCSessionDescriptionInit;
+    }) => {
+      console.log('[WebRTC] Received renegotiation offer from:', data.fromPeerId);
+      const pc = peerConnections.current.get(data.fromPeerId);
+      if (pc) {
+        try {
+          await pc.setRemoteDescription(data.offer);
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+
+          const currentState = callStateRef.current;
+          socket.emit('call:renegotiate-answer', {
+            projectId,
+            callId: currentState.callId,
+            targetPeerId: data.fromPeerId,
+            answer: pc.localDescription,
+          });
+          console.log('[WebRTC] Sent renegotiation answer to:', data.fromPeerId);
+        } catch (err) {
+          console.error('[WebRTC] Failed to handle renegotiation:', err);
+        }
+      }
+    };
+
+    // Handle ICE restart renegotiation answer
+    const handleRenegotiateAnswer = async (data: {
+      fromPeerId: string;
+      answer: RTCSessionDescriptionInit;
+    }) => {
+      console.log('[WebRTC] Received renegotiation answer from:', data.fromPeerId);
+      const pc = peerConnections.current.get(data.fromPeerId);
+      if (pc) {
+        try {
+          await pc.setRemoteDescription(data.answer);
+          console.log('[WebRTC] ICE restart completed with:', data.fromPeerId);
+        } catch (err) {
+          console.error('[WebRTC] Failed to set renegotiation answer:', err);
+        }
+      }
+    };
+
     // Handle ICE candidate
     const handleIceCandidate = async (data: {
       fromPeerId: string;
@@ -646,6 +778,8 @@ export function useWebRTC(projectId: string | null) {
     socket.on('call:user-joined', handleUserJoined);
     socket.on('call:offer', handleOffer);
     socket.on('call:answer', handleAnswer);
+    socket.on('call:renegotiate', handleRenegotiate);
+    socket.on('call:renegotiate-answer', handleRenegotiateAnswer);
     socket.on('call:ice-candidate', handleIceCandidate);
     socket.on('call:user-left', handleUserLeft);
     socket.on('call:ended', handleCallEnded);
@@ -659,6 +793,8 @@ export function useWebRTC(projectId: string | null) {
       socket.off('call:user-joined', handleUserJoined);
       socket.off('call:offer', handleOffer);
       socket.off('call:answer', handleAnswer);
+      socket.off('call:renegotiate', handleRenegotiate);
+      socket.off('call:renegotiate-answer', handleRenegotiateAnswer);
       socket.off('call:ice-candidate', handleIceCandidate);
       socket.off('call:user-left', handleUserLeft);
       socket.off('call:ended', handleCallEnded);
