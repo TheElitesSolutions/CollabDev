@@ -17,6 +17,7 @@ import {
 } from './dto/project-file.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
 import { ChatService } from '../chat/chat.service';
+import { YjsServerService } from '@/shared/socket/yjs-server.service';
 
 @Injectable()
 export class ProjectService {
@@ -26,6 +27,8 @@ export class ProjectService {
     private readonly cacheService: CacheService,
     @Inject(forwardRef(() => ChatService))
     private readonly chatService: ChatService,
+    @Inject(forwardRef(() => YjsServerService))
+    private readonly yjsService: YjsServerService,
   ) {}
 
   /**
@@ -987,5 +990,19 @@ A collaborative project built with CollabDev+.
     }
 
     return { message: 'Project files initialized' };
+  }
+
+  /**
+   * Save Yjs content for a file to the database
+   */
+  async saveYjsContent(projectId: string, fileId: string): Promise<void> {
+    const roomName = `file:${projectId}:${fileId}`;
+    const yjsDoc = this.yjsService['documents'].get(roomName);
+
+    if (yjsDoc) {
+      await this.yjsService['saveYjsContentToDb'](roomName, yjsDoc);
+    } else {
+      throw new NotFoundException('No active Yjs document found for this file');
+    }
   }
 }

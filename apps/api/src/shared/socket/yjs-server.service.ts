@@ -31,6 +31,8 @@ export class YjsServerService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(YjsServerService.name);
   private wss: WebSocketServer | null = null;
   private documents: Map<string, YjsDocument> = new Map();
+  private lastSaveTimestamps: Map<string, number> = new Map();
+  private readonly SAVE_DEBOUNCE_MS = 2000; // Save every 2 seconds max
 
   constructor(
     private readonly betterAuthService: BetterAuthService,
@@ -239,6 +241,9 @@ export class YjsServerService implements OnModuleInit, OnModuleDestroy {
         connections: new Map(),
       };
 
+      // Capture 'this' context for use in callbacks
+      const self = this;
+
       // Broadcast document updates
       const updateHandler: UpdateCallback = (update, origin) => {
         const encoder = encoding.createEncoder();
@@ -248,9 +253,12 @@ export class YjsServerService implements OnModuleInit, OnModuleDestroy {
 
         yjsDoc!.connections.forEach((_, conn) => {
           if (conn !== origin) {
-            this.send(conn, message);
+            self.send(conn, message);
           }
         });
+
+        // Debounced auto-save to database
+        self.debouncedSave(roomName, yjsDoc!);
       };
       doc.on('update', updateHandler);
 
@@ -268,7 +276,7 @@ export class YjsServerService implements OnModuleInit, OnModuleDestroy {
 
           yjsDoc!.connections.forEach((_, conn) => {
             if (conn !== origin) {
-              this.send(conn, message);
+              self.send(conn, message);
             }
           });
         }
@@ -350,8 +358,16 @@ export class YjsServerService implements OnModuleInit, OnModuleDestroy {
 
     this.logger.log(`Connection closed for room ${roomName}. Remaining: ${connections.size}`);
 
-    // Clean up empty documents after a delay
+    // Save on last disconnect
     if (connections.size === 0) {
+      this.saveYjsContentToDb(roomName, yjsDoc).catch(err => {
+        this.logger.error(`Failed final save for ${roomName}:`, err);
+      });
+
+      // Clear save timestamp
+      this.lastSaveTimestamps.delete(roomName);
+
+      // Clean up empty documents after a delay
       setTimeout(() => {
         const currentDoc = this.documents.get(roomName);
         if (currentDoc && currentDoc.connections.size === 0) {
@@ -410,6 +426,62 @@ export class YjsServerService implements OnModuleInit, OnModuleDestroy {
       yjsDoc.doc.transact(() => {
         yText.insert(0, content);
       });
+    }
+  }
+
+  /**
+   * Debounced save to prevent database overload
+   */
+  private debouncedSave(roomName: string, yjsDoc: YjsDocument) {
+    const now = Date.now();
+    const lastSave = this.lastSaveTimestamps.get(roomName) || 0;
+
+    if (now - lastSave < this.SAVE_DEBOUNCE_MS) {
+      return; // Skip if saved recently
+    }
+
+    this.lastSaveTimestamps.set(roomName, now);
+    this.saveYjsContentToDb(roomName, yjsDoc).catch(err => {
+      this.logger.error(`Failed to save Yjs content for ${roomName}:`, err);
+    });
+  }
+
+  /**
+   * Save Yjs document content to database
+   */
+  async saveYjsContentToDb(roomName: string, yjsDoc: YjsDocument): Promise<void> {
+    const parts = roomName.split(':');
+    if (parts.length !== 3) return;
+
+    const [roomType, projectId, resourceId] = parts;
+
+    // Extract text content from Yjs document
+    const yText = yjsDoc.doc.getText('monaco');
+    const content = yText.toString();
+
+    try {
+      if (roomType === 'file') {
+        await this.prisma.projectFile.update({
+          where: { id: resourceId },
+          data: {
+            content,
+            updatedAt: new Date(),
+          },
+        });
+        this.logger.debug(`Saved file content for ${roomName}`);
+      } else if (roomType === 'page') {
+        await this.prisma.page.update({
+          where: { id: resourceId },
+          data: {
+            content,
+            updatedAt: new Date(),
+          },
+        });
+        this.logger.debug(`Saved page content for ${roomName}`);
+      }
+    } catch (error) {
+      this.logger.error(`Failed to persist content for ${roomName}:`, error);
+      throw error;
     }
   }
 }

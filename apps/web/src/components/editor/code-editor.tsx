@@ -267,12 +267,18 @@ export function CodeEditor({
         provider.on('sync', (isSynced: boolean) => {
           if (isSynced && isInitialSyncRef.current && yText) {
             isInitialSyncRef.current = false;
-            // If the doc is empty after sync, initialize with current value from ref
             const currentValue = valueRef.current;
-            if (yText.length === 0 && currentValue && yDoc) {
+
+            // Only initialize if COMPLETELY empty AND we have content to load
+            if (yText.length === 0 && currentValue && currentValue.length > 0 && yDoc) {
               yDoc.transact(() => {
                 yText!.insert(0, currentValue);
               });
+              console.log('[Yjs] Initialized document with database content');
+            } else if (yText.length > 0) {
+              // Yjs has content - update parent with Yjs truth
+              onChangeRef.current(yText.toString());
+              console.log('[Yjs] Loaded existing collaborative content');
             }
           }
         });

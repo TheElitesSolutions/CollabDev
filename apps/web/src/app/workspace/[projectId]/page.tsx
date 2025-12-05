@@ -270,9 +270,9 @@ export default function WorkspacePage() {
 
     setIsSaving(true);
     try {
-      await apiClient.files.update(projectId, selectedFile.id, {
-        content: fileContent,
-      });
+      // For collaborative files, use Yjs save endpoint to force immediate persistence
+      // This bypasses the 2-second debounce and ensures immediate save feedback
+      await apiClient.files.saveYjs(projectId, selectedFile.id);
 
       // Update saved content
       setTabContents(prev => {

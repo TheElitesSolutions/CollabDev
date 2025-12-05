@@ -157,6 +157,18 @@ export class ProjectController {
     return this.projectService.deleteProjectFile(id, fileId, session.user.id);
   }
 
+  @Post(':id/files/:fileId/save-yjs')
+  async saveYjsContent(
+    @Param('id') projectId: string,
+    @Param('fileId') fileId: string,
+  ): Promise<{ success: boolean; message: string }> {
+    await this.projectService.saveYjsContent(projectId, fileId);
+    return {
+      success: true,
+      message: 'Yjs content saved successfully',
+    };
+  }
+
   @Post(':id/files/initialize')
   async initializeProjectFiles(
     @Param('id') id: string,

@@ -26,6 +26,7 @@ import {
   type ChatMessage,
 } from '@/lib/socket';
 import { apiClient, Message, Conversation, ChatUser } from '@/lib/api-client';
+import { toast } from '@/hooks/use-toast';
 
 type SocketState = {
   isConnected: boolean;
@@ -185,7 +186,7 @@ export const useSocketStore = create<SocketState>()(
 
         // Set up conversation message listener
         onConversationMessage((data: any) => {
-          const { activeConversationId } = get();
+          const { activeConversationId, conversations } = get();
           const msg: ChatMessage = {
             id: data.id,
             projectId: data.conversationId,
@@ -202,11 +203,25 @@ export const useSocketStore = create<SocketState>()(
             set({ messages: [...get().messages, msg] });
           }
 
-          // Update unread count if not viewing
+          // Update unread count and show toast if not viewing
           if (activeConversationId !== data.conversationId) {
             const unreadCounts = { ...get().unreadCounts };
             unreadCounts[data.conversationId] = (unreadCounts[data.conversationId] || 0) + 1;
             set({ unreadCounts });
+
+            // Show toast notification
+            const conversation = conversations.find(c => c.id === data.conversationId);
+            const conversationName = conversation?.name ||
+              conversation?.participants?.map(p => p.displayUsername || p.username).join(', ') ||
+              'Unknown';
+            const senderName = data.sender?.displayUsername || data.sender?.username || 'User';
+            const preview = data.content.length > 60 ? data.content.substring(0, 60) + '...' : data.content;
+
+            toast({
+              title: `${senderName} in ${conversationName}`,
+              description: preview,
+              duration: 5000,
+            });
           }
         });
 

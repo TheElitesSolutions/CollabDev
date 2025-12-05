@@ -419,6 +419,16 @@ export const apiClient = {
         body: JSON.stringify({}),
       });
     },
+
+    async saveYjs(
+      projectId: string,
+      fileId: string
+    ): Promise<{ success: boolean; message: string }> {
+      return request(`/api/project/${projectId}/files/${fileId}/save-yjs`, {
+        method: 'POST',
+        body: JSON.stringify({}),
+      });
+    },
   },
 
   // User APIs

@@ -37,7 +37,11 @@
       "Bash(if exist .next rmdir /s /q .next)",
       "Bash(git commit:*)",
       "Bash(git checkout:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git push:*)",
+      "Bash(ping:*)",
+      "Bash(cmd /c \"taskkill /F /IM node.exe /T\")",
+      "Bash(grep:*)"
     ],
     "deny": [],
     "ask": [],

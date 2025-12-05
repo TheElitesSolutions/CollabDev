@@ -4,9 +4,15 @@ import { Module, forwardRef } from '@nestjs/common';
 import { ProjectController } from './project.controller';
 import { ProjectService } from './project.service';
 import { ChatModule } from '../chat/chat.module';
+import { SocketModule } from '@/shared/socket/socket.module';
 
 @Module({
-  imports: [Neo4jModule, CacheModule, forwardRef(() => ChatModule)],
+  imports: [
+    Neo4jModule,
+    CacheModule,
+    forwardRef(() => ChatModule),
+    forwardRef(() => SocketModule),
+  ],
   controllers: [ProjectController],
   providers: [ProjectService],
   exports: [ProjectService],
